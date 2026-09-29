@@ -36,6 +36,8 @@ public final class Autopilot {
     private static final double MIN_GAP = 4.0;
     private static final double TIME_GAP = 1.2;
     private static final double STEER_RATE = Math.toRadians(60);
+    /** Where the front bumper stops before a stop line, m. */
+    private static final double STOP_LINE_GAP = 0.8;
 
     /**
      * Braking for something ahead starts once a constant deceleration of this much is needed to
@@ -68,6 +70,14 @@ public final class Autopilot {
      */
     public Command drive(double dt, VehicleModel car, RouteTracker tracker, List<SensorReadings.DetectedObject> objects,
                          double maxSpeed) {
+        return drive(dt, car, tracker, objects, maxSpeed, null);
+    }
+
+    /**
+     * @param junction what the junction planner decided for the next junction, or null
+     */
+    public Command drive(double dt, VehicleModel car, RouteTracker tracker, List<SensorReadings.DetectedObject> objects,
+                         double maxSpeed, JunctionPlanner.Decision junction) {
         Route route = tracker.route();
         double v = car.forwardSpeed();
         double arc = tracker.arc();
@@ -125,6 +135,23 @@ public final class Autopilot {
                     case BARRIER -> "Stopping for obstruction";
                     default -> leadSpeed > 1 ? "Following vehicle" : "Stopping behind vehicle";
                 };
+            }
+        }
+
+        // Stop line ahead (red light, or giving way): a stationary "lead" at the line.
+        if (junction != null && junction.mustStop()) {
+            double room = junction.stopArc() - arc - CarBody.FRONT - STOP_LINE_GAP;
+            double safe = room > 0 ? Math.sqrt(2 * FOLLOW_DECEL * room) : 0;
+            if (v > 0.3) {
+                double needed = room > 0.3 ? -(v * v) / (2 * room) : -SpeedController.MAX_DECEL;
+                if (needed <= -BRAKE_ONSET_DECEL) {
+                    accelLimit = Math.min(accelLimit, needed);
+                }
+            }
+            if (safe < target) {
+                target = safe;
+                status = junction.reason();
+                leadId = -1;
             }
         }
 

@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.selfdriving.alerts.Alert;
+import com.selfdriving.navigation.Route;
 import com.selfdriving.physics.CarBody;
 import com.selfdriving.physics.Gear;
 import com.selfdriving.physics.VehicleParams;
@@ -25,6 +26,7 @@ import com.selfdriving.world.Point2;
 import com.selfdriving.world.Pose;
 import com.selfdriving.world.RoadNetwork;
 import com.selfdriving.world.World;
+import com.selfdriving.navigation.RoadGraph;
 
 /**
  * End-to-end drives in the Bengaluru map: the whole simulation (sensors, navigation, autopilot,
@@ -267,6 +269,80 @@ class AutopilotIntegrationTest {
         runUntil(10, s -> s.actors().isEmpty());
         assertFalse(collided, "no collision");
         assertTrue(sim.latest().alerts().stream().anyMatch(a -> a.message().startsWith("Emergency braking")));
+    }
+
+    @Test
+    @DisplayName("Through city traffic: stops for red lights, gives way, never hits anyone, and arrives")
+    void drivesInTraffic() {
+        sim.setTrafficCount(120);
+        Place place = farPlace();
+        startAutopilotTo(place);
+        boolean[] stoppedForRed = {false};
+        boolean[] gaveWay = {false};
+        boolean[] braking = {false};
+        int[] emergencies = {0};
+        boolean arrived = runUntil(600, s -> {
+            if (s.safety().emergencyBraking() && !braking[0]) {
+                emergencies[0]++;
+                int threat = s.safety().threatId();
+                s.actors().stream().filter(a -> a.id() == threat).findFirst().ifPresent(a -> {
+                    double dx = a.box().cx() - s.vehicle().x();
+                    double dy = a.box().cy() - s.vehicle().y();
+                    double c = Math.cos(s.vehicle().heading());
+                    double sn = Math.sin(s.vehicle().heading());
+                    System.out.printf("AEB for %s: ahead %.1f m, side %.1f m, its heading %.0f deg relative, "
+                                    + "car %.1f km/h, status '%s'%n", a.kind(), dx * c + dy * sn, -dx * sn + dy * c,
+                            Math.toDegrees(a.box().heading() - s.vehicle().heading()), s.vehicle().speedKmh(),
+                            s.autopilot() == null ? "" : s.autopilot().status());
+                });
+            }
+            braking[0] = s.safety().emergencyBraking();
+            if (s.autopilot() != null && s.vehicle().speed() < 0.3) {
+                stoppedForRed[0] |= s.autopilot().status().startsWith("Stopping for red");
+                gaveWay[0] |= s.autopilot().status().startsWith("Giving way");
+            }
+            return s.mode() == DriveMode.MANUAL;
+        });
+        System.out.printf("In traffic: arrived %s, red-light stop %s, gave way %s, red lights run %d%n", arrived,
+                stoppedForRed[0], gaveWay[0], sim.redLightsRun());
+        sim.latest().alerts().forEach(a -> System.out.println("ALERT " + a.message()));
+        assertTrue(arrived, "arrived");
+        assertFalse(collided, "no collisions");
+        assertEquals(0, sim.redLightsRun(), "never drives through a red light");
+        assertEquals(0, emergencies[0], "no emergency braking needed: the autopilot anticipates traffic");
+        assertTrue(sim.latest().alerts().stream().anyMatch(a -> a.message().equals("Arrived at " + place.name())));
+    }
+
+    @Test
+    @DisplayName("A slow vehicle ahead on a multi-lane road is overtaken on the right, with the indicator on")
+    void overtakesSlowVehicle() {
+        // The longest multi-lane road in the map; drive along it to its far end.
+        RoadNetwork.Link road = WORLD.network().links().stream()
+                .filter(l -> l.isRendered() && l.lanes() >= 2 && !WORLD.network().junction(l.to()).isBoundary())
+                .max(Comparator.comparingDouble(RoadNetwork.Link::length)).orElseThrow();
+        assertTrue(road.length() > 200, "long road: " + road.length());
+        Point2 from = road.lane(0).pointAt(10);
+        sim = new Simulation(VehicleParams.electricSedan(), WORLD, new Pose(from.x(), from.y(), road.lane(0).headingAt(10)));
+        startAutopilotTo(new Place("End of " + road.name(), road.lane(0).pointAt(road.length() - 10)));
+        assertTrue(runUntil(30, s -> s.vehicle().speed() > 7), "up to speed");
+        sim.submit(Simulation::scenarioSlowVehicle);
+        runUntil(0.2, s -> false);
+        int id = sim.latest().actors().stream().filter(a -> a.kind() == Obstacle.Kind.AUTO_RICKSHAW
+                && a.id() < 1000).findFirst().orElseThrow().id();
+        boolean[] indicatedRight = {false};
+        boolean passed = runUntil(60, s -> {
+            indicatedRight[0] |= s.lights().indicator() == Lights.Indicator.RIGHT;
+            SimulationSnapshot.ActorState slow = s.actors().stream().filter(a -> a.id() == id).findFirst().orElse(null);
+            if (slow == null) {
+                return false;
+            }
+            double dx = slow.box().cx() - s.vehicle().x();
+            double dy = slow.box().cy() - s.vehicle().y();
+            return dx * Math.cos(s.vehicle().heading()) + dy * Math.sin(s.vehicle().heading()) < -8;
+        });
+        assertTrue(passed, "passed the slow vehicle");
+        assertTrue(indicatedRight[0], "indicated right before pulling out");
+        assertFalse(collided, "no collision while overtaking");
     }
 
     @Test

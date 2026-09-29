@@ -13,6 +13,8 @@ import java.util.function.Consumer;
 import com.selfdriving.alerts.Alert;
 import com.selfdriving.alerts.AlertBus;
 import com.selfdriving.autopilot.Autopilot;
+import com.selfdriving.autopilot.JunctionPlanner;
+import com.selfdriving.autopilot.LaneChangePlanner;
 import com.selfdriving.autopilot.SafetyController;
 import com.selfdriving.navigation.PathFinder;
 import com.selfdriving.navigation.RoadGraph;
@@ -75,6 +77,9 @@ public final class Simulation {
     private static final int ALERTS_IN_SNAPSHOT = 12;
     /** The autopilot switches the indicator on this far before a turn, m. */
     private static final double INDICATE_BEFORE_TURN = 45;
+    /** Indicate this far (about 3 s in town) before a lane change starts, m. */
+    private static final double LANE_CHANGE_SIGNAL = 30;
+    private static final double SLOW_VEHICLE_SPEED = 4.0;
 
     private final VehicleParams params;
     private final World world;
@@ -92,6 +97,8 @@ public final class Simulation {
     private final AlertBus alerts = new AlertBus();
     private final Lights lights = new Lights();
     private final TrafficSystem traffic;
+    private final JunctionPlanner junctionPlanner;
+    private final LaneChangePlanner laneChanges;
     private final Pose start;
 
     private final Queue<Consumer<Simulation>> commands = new ConcurrentLinkedQueue<>();
@@ -115,6 +122,8 @@ public final class Simulation {
     private long tick;
     private double time;
     private LightState lightState = LightState.off();
+    private JunctionPlanner.Decision junctionDecision;
+    private int redLightsRun;
     /** Clock time (seconds since midnight) at simulation time zero. */
     private double clockStart = java.time.LocalTime.now().toSecondOfDay();
 
@@ -131,6 +140,8 @@ public final class Simulation {
         this.monitor = new PerformanceMonitor(params);
         this.autopilot = new Autopilot(params);
         this.traffic = new TrafficSystem(world.network(), 0, 42);
+        this.junctionPlanner = new JunctionPlanner(world.network());
+        this.laneChanges = new LaneChangePlanner(world.network());
         this.start = start;
         // Warnings pop up as toasts; critical alerts get their own card on the display until acknowledged.
         alerts.subscribe(alert -> {
@@ -210,7 +221,9 @@ public final class Simulation {
                     world.walls());
         }
         if (tracker != null) {
+            double before = tracker.arc();
             tracker.update(car.x(), car.y());
+            checkStopLines(before, tracker.arc());
         }
 
         VehicleInputs inputs = decideInputs(dt, speed);
@@ -218,7 +231,7 @@ public final class Simulation {
         Route safetyRoute = mode == DriveMode.AUTOPILOT && tracker != null ? tracker.route() : null;
         assessment = safety.assess(emergencyBrakingEnabled, car.x(), car.y(), car.heading(), car.forwardSpeed(),
                 car.yawRate(), safetyRoute, tracker != null ? tracker.arc() : 0, readings.detected(),
-                surface.friction());
+                surface.friction(), laneFollowingPredictor(readings.detected()));
         if (assessment.emergencyBraking()) {
             inputs = new VehicleInputs(0, 1, inputs.steerAngle(), inputs.gear(), 1);
         }
@@ -262,7 +275,11 @@ public final class Simulation {
                 alerts.publish(time, Alert.Severity.WARNING, Alert.Category.NAVIGATION,
                         "Autopilot off: car left the route", "Autopilot");
             } else {
-                lastCommand = autopilot.drive(dt, car, tracker, readings.detected(), maxAutopilotSpeed);
+                junctionDecision = junctionPlanner.check(tracker.route(), tracker.arc(), car.forwardSpeed(), time, dt,
+                        readings.detected());
+                lastCommand = autopilot.drive(dt, car, tracker, readings.detected(), maxAutopilotSpeed,
+                        junctionDecision);
+                planLaneChange(dt);
                 double throttle = Math.max(lastCommand.throttle(), controls.throttle());
                 return new VehicleInputs(throttle, lastCommand.brake(), lastCommand.steerAngle(), Gear.DRIVE,
                         throttle > lastCommand.throttle() ? 1 : lastCommand.regen());
@@ -279,6 +296,89 @@ public final class Simulation {
         }
         return new VehicleInputs(controls.throttle(), controls.brake(), controls.steerAngle(speed),
                 gearSelector.gear());
+    }
+
+    /** Counts crossing a stop line on a light that has been red for over a second. */
+    private void checkStopLines(double beforeArc, double afterArc) {
+        if (mode != DriveMode.AUTOPILOT) {
+            return;
+        }
+        for (Route.JunctionEntry j : tracker.route().junctions()) {
+            double line = j.stopArc() - com.selfdriving.physics.CarBody.FRONT;
+            if (beforeArc < line && afterArc >= line) {
+                RoadNetwork.Link approach = world.network().link(j.link());
+                if (world.network().signal(approach, time) == RoadNetwork.Signal.RED
+                        && world.network().signal(approach, time - 1.0) == RoadNetwork.Signal.RED) {
+                    redLightsRun++;
+                }
+            }
+        }
+    }
+
+    /** Red lights the autopilot drove through (should always be 0). */
+    int redLightsRun() {
+        return redLightsRun;
+    }
+
+    /** Overtaking, moving back left and waiting for a gap: re-plans the route with the change. */
+    private void planLaneChange(double dt) {
+        SensorReadings.DetectedObject lead = null;
+        for (SensorReadings.DetectedObject o : readings.detected()) {
+            if (o.id() == lastCommand.leadObjectId()) {
+                lead = o;
+            }
+        }
+        double wanted = Math.min(maxAutopilotSpeed, tracker.route().targetSpeedAt(tracker.arc() + 30));
+        LaneChangePlanner.Change change = laneChanges.decide(dt, tracker, car.x(), car.y(), car.forwardSpeed(),
+                wanted, lead, readings.detected());
+        if (change == null) {
+            return;
+        }
+        Route route = laneChanges.apply(change, graph, tracker.route(), car.x(), car.y(), car.heading());
+        if (route != null) {
+            tracker = new RouteTracker(route);
+            tracker.update(car.x(), car.y());
+            notifyDriver(change.reason());
+        }
+    }
+
+    /**
+     * Predicts other vehicles along their lanes rather than in a straight line, so a car coming
+     * the other way round a bend is not mistaken for one about to hit us.
+     */
+    private SafetyController.Predictor laneFollowingPredictor(List<SensorReadings.DetectedObject> objects) {
+        java.util.Map<Integer, Object[]> lanes = new java.util.HashMap<>();
+        for (SensorReadings.DetectedObject o : objects) {
+            if (!o.kind().isVehicle()) {
+                continue;
+            }
+            RoadNetwork.Position p = world.network().locate(o.x(), o.y(), o.heading(), 1.6, Math.toRadians(35));
+            if (p != null) {
+                com.selfdriving.world.Polyline lane = p.link().lane(p.lane());
+                double v = Math.max(0, o.vx() * Math.cos(o.heading()) + o.vy() * Math.sin(o.heading()));
+                lanes.put(o.id(), new Object[] {lane, lane.project(o.x(), o.y()).arc(), v});
+            }
+        }
+        return (o, t) -> {
+            Object[] entry = lanes.get(o.id());
+            if (entry == null) {
+                return SafetyController.STRAIGHT.at(o, t);
+            }
+            com.selfdriving.world.Polyline line = (com.selfdriving.world.Polyline) entry[0];
+            double s = (double) entry[1] + (double) entry[2] * t;
+            double h;
+            Point2 p;
+            if (s <= line.length()) {
+                p = line.pointAt(s);
+                h = line.headingAt(s);
+            } else {
+                Point2 end = line.pointAt(line.length());
+                h = line.headingAt(line.length());
+                double extra = s - line.length();
+                p = new Point2(end.x() + Math.cos(h) * extra, end.y() + Math.sin(h) * extra);
+            }
+            return new OrientedBox(p.x(), p.y(), h, o.halfLength(), o.halfWidth());
+        };
     }
 
     /** The autopilot indicates before its turns; the lamps follow pedals, gear and daylight. */
@@ -300,6 +400,13 @@ public final class Simulation {
                 if (turn != RoadNetwork.Turn.STRAIGHT) {
                     break; // the turn the car is in, or the next one
                 }
+            }
+        }
+        if (mode == DriveMode.AUTOPILOT && tracker != null) {
+            int change = tracker.route().laneChangeAt(tracker.arc(), LANE_CHANGE_SIGNAL);
+            if (change != 0) {
+                // Lane 0 is the kerb (left) lane: a higher lane number is to the right.
+                auto = change > 0 ? Lights.Indicator.RIGHT : Lights.Indicator.LEFT;
             }
         }
         lights.setAutoIndicator(auto);
@@ -539,6 +646,8 @@ public final class Simulation {
             gearSelector.force(Gear.DRIVE);
         }
         autopilot.reset(applied.steerAngle());
+        junctionPlanner.reset();
+        laneChanges.reset();
         setMode(DriveMode.AUTOPILOT);
         alerts.publish(time, Alert.Severity.INFO, Alert.Category.AUTOPILOT,
                 "Autopilot on: driving to " + tracker.route().destination(), "Autopilot");
@@ -604,6 +713,21 @@ public final class Simulation {
         }
         scenarios.stoppedVehicle(tracker.route(), tracker.arc() + ahead, time);
         notifyDriver("Scenario: a vehicle has stopped in your lane ahead");
+    }
+
+    /** A slow vehicle ahead in the car's lane (to show overtaking on roads with more lanes). */
+    public void scenarioSlowVehicle() {
+        if (tracker == null) {
+            notifyDriver("Choose a destination first: the vehicle is placed on your route");
+            return;
+        }
+        double ahead = Math.max(35, car.forwardSpeed() * 3);
+        if (tracker.arc() + ahead > tracker.route().length() - 40) {
+            notifyDriver("Too close to the destination for this scenario");
+            return;
+        }
+        scenarios.slowVehicle(tracker.route(), tracker.arc() + ahead, SLOW_VEHICLE_SPEED);
+        notifyDriver("Scenario: a slow auto-rickshaw ahead");
     }
 
     /** Closes the next road on the route with a barrier and re-routes around it. */
@@ -758,10 +882,12 @@ public final class Simulation {
         }
         SimulationSnapshot.AutopilotStatus autopilotStatus = null;
         if (mode == DriveMode.AUTOPILOT && lastCommand != null) {
+            RoadNetwork.Signal signal = junctionDecision == null ? RoadNetwork.Signal.NONE : junctionDecision.signal();
+            double signalDistance = junctionDecision == null ? Double.POSITIVE_INFINITY : junctionDecision.signalDistance();
             autopilotStatus = new SimulationSnapshot.AutopilotStatus(lastCommand.status(), lastCommand.targetSpeed(),
-                    lastCommand.leadObjectId());
+                    lastCommand.leadObjectId(), signal, signalDistance);
         } else if (mode == DriveMode.AUTOPILOT) {
-            autopilotStatus = new SimulationSnapshot.AutopilotStatus("Starting", 0, -1);
+            autopilotStatus = new SimulationSnapshot.AutopilotStatus("Starting", 0, -1, RoadNetwork.Signal.NONE, Double.POSITIVE_INFINITY);
         }
         Set<Integer> seen = new HashSet<>();
         for (SensorReadings.DetectedObject d : readings.detected()) {

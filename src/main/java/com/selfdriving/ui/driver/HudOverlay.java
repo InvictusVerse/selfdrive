@@ -56,6 +56,7 @@ final class HudOverlay {
     private final Label cameraLabel = new Label();
     private final LongConsumer onAcknowledge;
     private final Label setSpeed = new Label();
+    private final Label signalChip = new Label();
     private final Label clock = new Label();
     private final Group autopilotIcon = Icons.autopilot();
     private final Group leftArrow = Icons.indicatorLeft();
@@ -160,7 +161,12 @@ final class HudOverlay {
         autopilotStatus.setMouseTransparent(true);
         criticalAlerts.setAlignment(Pos.TOP_RIGHT);
         criticalAlerts.setPickOnBounds(false);
-        VBox right = new VBox(8, chips, autopilotStatus, criticalAlerts);
+        signalChip.getStyleClass().add("signal-chip");
+        signalChip.setAccessibleText("Traffic light ahead");
+        signalChip.setMouseTransparent(true);
+        signalChip.setVisible(false);
+        signalChip.setManaged(false);
+        VBox right = new VBox(8, chips, autopilotStatus, signalChip, criticalAlerts);
         right.setAlignment(Pos.TOP_RIGHT);
         right.setPadding(new Insets(22, 22, 0, 0));
         right.setPickOnBounds(false);
@@ -234,6 +240,22 @@ final class HudOverlay {
         if (snapshot.autopilot() != null) {
             autopilotStatus.setText(String.format("%s  \u00B7  %.0f km/h", snapshot.autopilot().status(),
                     snapshot.autopilot().targetSpeed() * 3.6));
+        }
+        var signal = snapshot.autopilot() == null ? com.selfdriving.world.RoadNetwork.Signal.NONE
+                : snapshot.autopilot().signal();
+        boolean showSignal = signal != com.selfdriving.world.RoadNetwork.Signal.NONE
+                && snapshot.autopilot().signalDistance() < 80;
+        signalChip.setVisible(showSignal);
+        signalChip.setManaged(showSignal);
+        if (showSignal) {
+            signalChip.setText(String.format("\u25CF %s  %.0f m", switch (signal) {
+                case RED -> "RED";
+                case AMBER -> "AMBER";
+                default -> "GREEN";
+            }, Math.max(0, snapshot.autopilot().signalDistance())));
+            setClass(signalChip, "red", signal == com.selfdriving.world.RoadNetwork.Signal.RED);
+            setClass(signalChip, "amber", signal == com.selfdriving.world.RoadNetwork.Signal.AMBER);
+            setClass(signalChip, "green", signal == com.selfdriving.world.RoadNetwork.Signal.GREEN);
         }
         autopilotStatus.setVisible(snapshot.autopilot() != null);
 

@@ -113,6 +113,28 @@ public final class ScenarioManager {
         return car;
     }
 
+    /**
+     * A slow vehicle (an auto-rickshaw at walking-plus pace) in the lane ahead, driving along the
+     * route: something to overtake.
+     */
+    public Obstacle slowVehicle(Route route, double arc, double speed) {
+        Point2 p = route.pointAt(arc);
+        Obstacle vehicle = new Obstacle(nextId++, Obstacle.Kind.AUTO_RICKSHAW,
+                new OrientedBox(p.x(), p.y(), route.headingAt(arc), 1.45, 0.7), 1.75, "Auto-rickshaw");
+        double[] position = {arc};
+        vehicle.setBehaviour((o, time, dt) -> {
+            position[0] += speed * dt;
+            if (position[0] >= route.length() - 5) {
+                return false;
+            }
+            Point2 q = route.pointAt(position[0]);
+            o.moveTo(q.x(), q.y(), route.headingAt(position[0]), dt);
+            return true;
+        });
+        actors.add(vehicle);
+        return vehicle;
+    }
+
     /** Barrier across a road, placed a little way into it. */
     public Obstacle roadBarrier(Point2 position, double roadHeading, double roadWidth) {
         Obstacle barrier = new Obstacle(nextId++, Obstacle.Kind.BARRIER,

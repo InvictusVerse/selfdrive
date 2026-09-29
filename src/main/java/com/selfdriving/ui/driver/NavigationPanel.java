@@ -43,6 +43,8 @@ final class NavigationPanel {
 
         void scenarioStoppedVehicle();
 
+        void scenarioSlowVehicle();
+
         void scenarioRoadClosed();
 
         void clearScenarios();
@@ -123,17 +125,23 @@ final class NavigationPanel {
         pedestrian.setOnAction(e -> actions.scenarioPedestrian());
         Button stopped = button("Stopped car", "A car stands in your lane ahead, then pulls away");
         stopped.setOnAction(e -> actions.scenarioStoppedVehicle());
-        Button closed = button("Road closed", "Close a road on the route and re-route around it");
+        Button slow = button("Slow car", "A slow auto-rickshaw ahead: watch the car overtake on wider roads");
+        slow.setOnAction(e -> actions.scenarioSlowVehicle());
+        Button closed = button("Closed", "Close a road on the route and re-route around it");
         closed.setOnAction(e -> actions.scenarioRoadClosed());
         Button reset = button("Clear", "Remove test objects and re-open all roads");
         reset.setOnAction(e -> actions.clearScenarios());
         style(aeb, "Automatic emergency braking on or off");
         aeb.setOnAction(e -> actions.setEmergencyBraking(aeb.isSelected()));
         trafficButton.setOnAction(e -> actions.cycleTraffic());
-        HBox scenarios = new HBox(6, scenariosLabel, pedestrian, stopped, closed, reset, spacer(), trafficButton, aeb);
+        HBox scenarios = new HBox(6, scenariosLabel, pedestrian, stopped, slow, closed, reset);
         scenarios.setAlignment(Pos.CENTER_LEFT);
+        Label roadLabel = new Label("ROAD");
+        roadLabel.getStyleClass().add("dock-group-label");
+        HBox settings = new HBox(6, roadLabel, trafficButton, spacer(), aeb);
+        settings.setAlignment(Pos.CENTER_LEFT);
 
-        root.getChildren().addAll(title, pick, summary, instruction, drive, scenarios);
+        root.getChildren().addAll(title, pick, summary, instruction, drive, scenarios, settings);
     }
 
     VBox node() {

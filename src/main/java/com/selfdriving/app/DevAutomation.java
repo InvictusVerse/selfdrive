@@ -97,6 +97,7 @@ final class DevAutomation {
             case "scenario" -> simulation.submit(switch (value) {
                 case "pedestrian" -> Simulation::scenarioPedestrian;
                 case "stopped" -> Simulation::scenarioStoppedVehicle;
+                case "slow" -> Simulation::scenarioSlowVehicle;
                 case "closed" -> Simulation::scenarioRoadClosed;
                 default -> Simulation::clearScenarios;
             });

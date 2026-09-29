@@ -81,9 +81,16 @@ public final class Route {
      * @param linkStart distance along the link where this stretch starts, m
      * @param fromLane  lane at the start of the stretch
      * @param toLane    lane at the end of the stretch (differs when the car changes lane)
+     * @param changeStart where the lane change starts, m along the route (NaN if none)
+     * @param changeEnd   where it ends, m along the route (NaN if none)
      */
     public record Stretch(double startArc, double endArc, int link, int connector, double linkStart,
-                          int fromLane, int toLane) {
+                          int fromLane, int toLane, double changeStart, double changeEnd) {
+
+        /** Moves to a higher-numbered lane (to the right, as lane 0 is the kerb lane). */
+        public boolean changesRight() {
+            return toLane > fromLane;
+        }
     }
 
     private static long nextVersion = 1;
@@ -167,7 +174,9 @@ public final class Route {
             if (last) {
                 exitLane = 0; // pull in to the left-hand kerb at the destination
             } else {
-                connector = choose(network, link, edges.get(e + 1).link(), lane, e + 2 < edges.size()
+                // After a deliberate lane change, stay in the new lane if the next turn allows it.
+                int planLane = e == 0 && changeToLane >= 0 && changeToLane < link.lanes() ? changeToLane : lane;
+                connector = choose(network, link, edges.get(e + 1).link(), planLane, e + 2 < edges.size()
                         ? edges.get(e + 2).link() : null);
                 exitLane = connector == null ? lane : connector.fromLane();
             }
@@ -296,7 +305,9 @@ public final class Route {
                 double h = centre.headingAt(s);
                 add(p.x() - Math.sin(h) * offset, p.y() + Math.cos(h) * offset, link.speedLimit());
             }
-            stretches.add(new Stretch(startArc, arc, link.id(), -1, from, laneIn, laneOut));
+            double cs = laneIn == laneOut ? Double.NaN : startArc + Math.max(0, c0 - from);
+            double ce = laneIn == laneOut ? Double.NaN : startArc + Math.max(0, c1 - from);
+            stretches.add(new Stretch(startArc, arc, link.id(), -1, from, laneIn, laneOut, cs, ce));
         }
 
         void addConnector(RoadNetwork.Connector c, String nextRoad) {
@@ -316,7 +327,7 @@ public final class Route {
             for (int i = 1; i < pts.size(); i++) {
                 add(pts.get(i).x(), pts.get(i).y(), limit);
             }
-            stretches.add(new Stretch(entry, arc, -1, c.id(), 0, c.fromLane(), c.toLane()));
+            stretches.add(new Stretch(entry, arc, -1, c.id(), 0, c.fromLane(), c.toLane(), Double.NaN, Double.NaN));
             junctions.add(new JunctionEntry(stop, entry, arc, in.id(), c.id(), c.junction()));
         }
 
@@ -456,6 +467,19 @@ public final class Route {
             }
         }
         return stretches.get(stretches.size() - 1);
+    }
+
+    /**
+     * Lane change coming up or under way: +1 to the right, -1 to the left, 0 none. "Coming up"
+     * means within {@code before} metres of its start (to indicate in good time).
+     */
+    public int laneChangeAt(double arc, double before) {
+        for (Stretch s : stretches) {
+            if (!Double.isNaN(s.changeStart()) && arc >= s.changeStart() - before && arc <= s.changeEnd()) {
+                return s.changesRight() ? 1 : -1;
+            }
+        }
+        return 0;
     }
 
     /** Edge the destination is on. */

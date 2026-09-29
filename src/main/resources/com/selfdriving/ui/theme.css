@@ -507,3 +507,14 @@
     -fx-text-fill: -sd-text;
     -fx-cursor: hand;
 }
+
+.signal-chip {
+    -fx-padding: 4 12 4 12;
+    -fx-background-radius: 999;
+    -fx-background-color: rgba(31, 34, 40, 0.85);
+    -fx-font-weight: bold;
+}
+
+.signal-chip.red { -fx-text-fill: #ff5a5a; }
+.signal-chip.amber { -fx-text-fill: -sd-warning; }
+.signal-chip.green { -fx-text-fill: -sd-success; }

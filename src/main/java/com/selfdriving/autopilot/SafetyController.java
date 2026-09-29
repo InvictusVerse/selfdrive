@@ -34,6 +34,19 @@ public final class SafetyController {
         }
     }
 
+    /**
+     * Where a detected object will be after some time. The default is a straight line at its
+     * measured velocity; the simulation supplies a better guess for vehicles (they follow their lane).
+     */
+    @FunctionalInterface
+    public interface Predictor {
+        OrientedBox at(SensorReadings.DetectedObject object, double seconds);
+    }
+
+    /** Straight line at the measured velocity. */
+    public static final Predictor STRAIGHT = (o, t) -> new OrientedBox(o.x() + o.vx() * t, o.y() + o.vy() * t,
+            o.heading(), o.halfLength(), o.halfWidth());
+
     public static final double HORIZON = 3.0;
     public static final double WARNING_TTC = 2.5;
     private static final double LAST_MOMENT_TTC = 0.6;
@@ -62,6 +75,13 @@ public final class SafetyController {
     public Assessment assess(boolean enabled, double x, double y, double heading, double speed, double yawRate,
                              Route route, double routeArc, List<SensorReadings.DetectedObject> objects,
                              double friction) {
+        return assess(enabled, x, y, heading, speed, yawRate, route, routeArc, objects, friction, STRAIGHT);
+    }
+
+    /** As above, with a way to predict how objects move. */
+    public Assessment assess(boolean enabled, double x, double y, double heading, double speed, double yawRate,
+                             Route route, double routeArc, List<SensorReadings.DetectedObject> objects,
+                             double friction, Predictor predictor) {
         if (!enabled) {
             braking = false;
             return Assessment.clear();
@@ -95,8 +115,10 @@ public final class SafetyController {
             OrientedBox car = new OrientedBox(px + Math.cos(ph) * offset, py + Math.sin(ph) * offset, ph,
                     halfLength, halfWidth);
             for (SensorReadings.DetectedObject o : objects) {
-                OrientedBox future = new OrientedBox(o.x() + o.vx() * t, o.y() + o.vy() * t, o.heading(),
-                        o.halfLength(), o.halfWidth());
+                if (isFollowing(o, x, y, heading)) {
+                    continue; // braking cannot avoid a vehicle catching up from behind
+                }
+                OrientedBox future = predictor.at(o, t);
                 if (car.overlap(future) != null) {
                     ttc = t;
                     threat = o.id();
@@ -120,6 +142,13 @@ public final class SafetyController {
             brakingFor = -1;
         }
         return new Assessment(ttc, braking ? brakingFor : threat, warning, braking);
+    }
+
+    /** A vehicle behind the car going the same way. */
+    private static boolean isFollowing(SensorReadings.DetectedObject o, double x, double y, double heading) {
+        double ahead = (o.x() - x) * Math.cos(heading) + (o.y() - y) * Math.sin(heading);
+        double dh = Math.atan2(Math.sin(o.heading() - heading), Math.cos(o.heading() - heading));
+        return ahead < 0 && Math.abs(dh) < Math.toRadians(60);
     }
 
     /** Whether something is still right in front of a stopped car. */

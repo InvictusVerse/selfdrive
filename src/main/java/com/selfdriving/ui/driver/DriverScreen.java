@@ -351,6 +351,11 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
     }
 
     @Override
+    public void scenarioSlowVehicle() {
+        simulation.submit(Simulation::scenarioSlowVehicle);
+    }
+
+    @Override
     public void scenarioRoadClosed() {
         simulation.submit(Simulation::scenarioRoadClosed);
     }

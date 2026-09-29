@@ -95,8 +95,11 @@ public record SimulationSnapshot(
      * @param status       short explanation for the driver
      * @param targetSpeed  speed it is aiming for, m/s
      * @param leadObjectId object it is following or stopping for, or -1
+     * @param signal       traffic light at the next junction on the route (NONE if none)
+     * @param signalDistance distance to that light's stop line, m
      */
-    public record AutopilotStatus(String status, double targetSpeed, int leadObjectId) {
+    public record AutopilotStatus(String status, double targetSpeed, int leadObjectId,
+                                  com.selfdriving.world.RoadNetwork.Signal signal, double signalDistance) {
     }
 
     /**

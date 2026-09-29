@@ -51,6 +51,17 @@ public final class TripRepository {
         return jdbc.query(SELECT + "ORDER BY t.started_at DESC, t.id DESC LIMIT ?", TripRepository::map, limit);
     }
 
+    /** Totals over finished trips. */
+    public record Totals(int trips, double drivenM, double energyKwh) {
+    }
+
+    /** Trips started since a time (all of them for {@code Instant.EPOCH}). */
+    public Totals totals(Instant since) {
+        return jdbc.one("SELECT COUNT(*), COALESCE(SUM(driven_m), 0), COALESCE(SUM(energy_kwh), 0) FROM trips "
+                + "WHERE started_at >= ?", r -> new Totals(r.getInt(1), r.getDouble(2), r.getDouble(3)), since)
+                .orElse(new Totals(0, 0, 0));
+    }
+
     /** Trips that were left unfinished (the app closed during a trip): marked as cancelled. */
     public void closeUnfinished(Instant at) {
         jdbc.update("UPDATE trips SET status = 'CANCELLED', ended_at = ? WHERE status = 'IN_PROGRESS'", at);

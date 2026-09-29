@@ -1,2 +1,3 @@
 V1__users_settings_alerts_trips.sql
 V2__maintenance_updates_tests.sql
+V3__update_details.sql

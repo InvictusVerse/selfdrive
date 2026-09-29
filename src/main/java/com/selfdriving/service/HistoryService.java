@@ -36,6 +36,12 @@ public final class HistoryService {
         return alerts.recent(limit, minSeverity, category);
     }
 
+    /** Acknowledges a saved alert (from the alert log). */
+    public void acknowledge(Session session, long alertId, java.time.Instant at) {
+        session.require(Permission.ACKNOWLEDGE_ALERTS);
+        alerts.acknowledge(alertId, session.userId(), at);
+    }
+
     public List<AuditRepository.Entry> audit(Session session, int limit) {
         session.require(Permission.VIEW_AUDIT_LOG);
         return audit.recent(limit);

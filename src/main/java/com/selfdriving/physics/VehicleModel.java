@@ -48,6 +48,12 @@ public final class VehicleModel {
 
     private boolean absEnabled = true;
     private boolean tractionControlEnabled = true;
+    /** Share of the normal brake torque the brakes deliver (1 = healthy; faults lower it). */
+    private double brakeEfficiency = 1;
+    /** Share of the motor's drive torque allowed (1 = full; overheating or battery limits lower it). */
+    private double driveLimit = 1;
+    /** Share of regenerative braking allowed (a battery fault can stop it charging). */
+    private double regenLimit = 1;
 
     private double x;
     private double y;
@@ -185,6 +191,11 @@ public final class VehicleModel {
         if (battery.isEmpty() && motorTorque * direction > 0) {
             motorTorque = 0;
         }
+        if (accelerating) {
+            motorTorque *= driveLimit;
+        } else if (regenerating) {
+            motorTorque *= regenLimit;
+        }
         double wheelTorque = motorTorque * motor.gearRatio();
         double frontTorque = wheelTorque * motor.frontTorqueShare() / 2;
         double rearTorque = wheelTorque * (1 - motor.frontTorqueShare()) / 2;
@@ -208,7 +219,7 @@ public final class VehicleModel {
 
             double maxBrake = i < 2 ? params.maxBrakeTorqueFront() : params.maxBrakeTorqueRear();
             double pressure = abs[i].update(absEnabled, in.brake(), w.slipRatio, vLong, surface, h);
-            double brakeTorque = in.brake() * maxBrake * pressure;
+            double brakeTorque = in.brake() * maxBrake * pressure * brakeEfficiency;
             if (in.gear() == Gear.PARK && i >= 2) {
                 brakeTorque = PARK_LOCK_TORQUE;
             }
@@ -399,6 +410,28 @@ public final class VehicleModel {
 
     public Suspension suspension() {
         return suspension;
+    }
+
+    /**
+     * Limits for faults: brake torque share, drive torque share and regeneration share, each
+     * clamped to 0..1.
+     */
+    public void setLimits(double brakeEfficiency, double driveLimit, double regenLimit) {
+        this.brakeEfficiency = clamp01(brakeEfficiency);
+        this.driveLimit = clamp01(driveLimit);
+        this.regenLimit = clamp01(regenLimit);
+    }
+
+    public double brakeEfficiency() {
+        return brakeEfficiency;
+    }
+
+    public double driveLimit() {
+        return driveLimit;
+    }
+
+    private static double clamp01(double v) {
+        return Math.max(0, Math.min(1, v));
     }
 
     public Battery battery() {

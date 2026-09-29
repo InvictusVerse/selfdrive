@@ -19,6 +19,9 @@ import com.selfdriving.autopilot.LaneChangePlanner;
 import com.selfdriving.autopilot.ParkingController;
 import com.selfdriving.autopilot.ParkingPlanner;
 import com.selfdriving.autopilot.SafetyController;
+import com.selfdriving.diagnostics.DiagnosticReport;
+import com.selfdriving.diagnostics.Fault;
+import com.selfdriving.diagnostics.Subsystem;
 import com.selfdriving.navigation.PathFinder;
 import com.selfdriving.navigation.RoadGraph;
 import com.selfdriving.navigation.Route;
@@ -132,6 +135,8 @@ public final class Simulation {
     private ParkingController parking;
     private String parkingStatus = "";
     private final List<SimulationListener> listeners = new CopyOnWriteArrayList<>();
+    private final Set<Fault> faults = java.util.EnumSet.noneOf(Fault.class);
+    private boolean softwareUpdating;
     private Trip trip;
     private long nextTripId = 1;
     /** Clock time (seconds since midnight) at simulation time zero. */
@@ -628,6 +633,9 @@ public final class Simulation {
 
     /** Gear request from the keyboard: all rules apply, including "brake to leave Park". */
     public void requestGear(Gear gear) {
+        if (refusedWhileUpdating(gear)) {
+            return;
+        }
         if (mode != DriveMode.MANUAL) {
             notifyDriver("Take over first to change gear");
             return;
@@ -644,6 +652,9 @@ public final class Simulation {
      * the shift, as touchscreen drive selectors do. Every other rule still applies.
      */
     public void requestGearFromScreen(Gear gear) {
+        if (refusedWhileUpdating(gear)) {
+            return;
+        }
         if (mode != DriveMode.MANUAL) {
             notifyDriver("Take over first to change gear");
             return;
@@ -654,6 +665,14 @@ public final class Simulation {
         if (!result.accepted()) {
             notifyDriver(result.message());
         }
+    }
+
+    private boolean refusedWhileUpdating(Gear gear) {
+        if (softwareUpdating && gear != Gear.PARK) {
+            notifyDriver("Software update in progress: the car stays in Park until it finishes");
+            return true;
+        }
+        return false;
     }
 
     // ---- Commands: lights ---------------------------------------------------------------------
@@ -752,6 +771,15 @@ public final class Simulation {
 
     /** Hands driving to the autopilot (needs a route, and the car not in Reverse). */
     public void engageAutopilot() {
+        if (softwareUpdating) {
+            notifyDriver("Autopilot is not available during a software update");
+            return;
+        }
+        if (faults.contains(Fault.BRAKE_PRESSURE_LOW)) {
+            alerts.publish(time, Alert.Severity.WARNING, Alert.Category.AUTOPILOT,
+                    "Autopilot unavailable: brake fault", "Autopilot");
+            return;
+        }
         if (tracker == null) {
             notifyDriver("Choose a destination first");
             return;
@@ -815,6 +843,141 @@ public final class Simulation {
         }
     }
 
+    // ---- Commands: faults, diagnostics, software updates ------------------------------------
+
+    /** A fault appears (from a technician's fault injection): its effect starts at once. */
+    public void injectFault(Fault fault) {
+        if (!faults.add(fault)) {
+            return;
+        }
+        applyFaults();
+        alerts.publish(time, fault.severity(), categoryOf(fault), fault.code() + " " + fault.title() + ": "
+                + fault.effect(), "Diagnostics");
+        if (fault == Fault.BRAKE_PRESSURE_LOW && (mode == DriveMode.AUTOPILOT || mode == DriveMode.AUTO_PARK)) {
+            parking = null;
+            setMode(DriveMode.MANUAL);
+            notifyDriver("Autopilot off: brake fault. Stop safely and have the car checked");
+        }
+        if (fault == Fault.ULTRASONIC_OFFLINE && mode == DriveMode.AUTO_PARK) {
+            parking = null;
+            setMode(DriveMode.MANUAL);
+            notifyDriver("Parking stopped: parking sensors failed");
+        }
+    }
+
+    /** A fault is repaired. */
+    public void clearFault(Fault fault) {
+        if (!faults.remove(fault)) {
+            return;
+        }
+        applyFaults();
+        alerts.publish(time, Alert.Severity.INFO, Alert.Category.MAINTENANCE, fault.code() + " repaired: "
+                + fault.title(), "Diagnostics");
+    }
+
+    public Set<Fault> faults() {
+        return java.util.Collections.unmodifiableSet(faults);
+    }
+
+    private void applyFaults() {
+        sensors.setLidarWorking(!faults.contains(Fault.LIDAR_OFFLINE));
+        sensors.setRadarWorking(!faults.contains(Fault.RADAR_OFFLINE));
+        sensors.setUltrasonicWorking(!faults.contains(Fault.ULTRASONIC_OFFLINE));
+        double drive = 1;
+        double regen = 1;
+        if (faults.contains(Fault.MOTOR_OVERHEAT)) {
+            drive = Math.min(drive, 0.35);
+        }
+        if (faults.contains(Fault.BATTERY_CELL_IMBALANCE)) {
+            drive = Math.min(drive, 0.6);
+            regen = 0;
+        }
+        car.setLimits(faults.contains(Fault.BRAKE_PRESSURE_LOW) ? 0.4 : 1, drive, regen);
+    }
+
+    private static Alert.Category categoryOf(Fault fault) {
+        return switch (fault.subsystem()) {
+            case LIDAR, RADAR, ULTRASONIC -> Alert.Category.SENSOR;
+            case BRAKES -> Alert.Category.BRAKES;
+            case BATTERY -> Alert.Category.BATTERY;
+            default -> Alert.Category.MAINTENANCE;
+        };
+    }
+
+    /**
+     * Checks every subsystem from live readings, like an on-board diagnostics scan.
+     * Must run on the simulation thread (submit a command).
+     */
+    public DiagnosticReport diagnose() {
+        List<DiagnosticReport.Check> checks = new ArrayList<>();
+        if (faults.contains(Fault.LIDAR_OFFLINE)) {
+            checks.add(check(Subsystem.LIDAR, "No returns on any of " + readings.lidarRanges().length + " rays",
+                    Fault.LIDAR_OFFLINE));
+        } else {
+            int returns = 0;
+            for (float r : readings.lidarRanges()) {
+                if (!Float.isNaN(r)) {
+                    returns++;
+                }
+            }
+            checks.add(check(Subsystem.LIDAR, String.format("%d of %d rays returning, 10 Hz", returns,
+                    readings.lidarRanges().length), null));
+        }
+        if (faults.contains(Fault.RADAR_OFFLINE)) {
+            checks.add(check(Subsystem.RADAR, "No response on the vehicle bus", Fault.RADAR_OFFLINE));
+        } else {
+            SensorReadings.RadarTarget t = readings.radar();
+            checks.add(check(Subsystem.RADAR, t == null ? "Responding, no target in range"
+                    : String.format("Tracking a target at %.1f m", t.range()), null));
+        }
+        checks.add(faults.contains(Fault.ULTRASONIC_OFFLINE)
+                ? check(Subsystem.ULTRASONIC, "0 of 8 sensors responding", Fault.ULTRASONIC_OFFLINE)
+                : check(Subsystem.ULTRASONIC, "8 of 8 sensors responding", null));
+        checks.add(faults.contains(Fault.BRAKE_PRESSURE_LOW)
+                ? check(Subsystem.BRAKES, String.format("Line pressure %.0f bar of 160 (%.0f %% force)",
+                        160 * car.brakeEfficiency(), car.brakeEfficiency() * 100), Fault.BRAKE_PRESSURE_LOW)
+                : check(Subsystem.BRAKES, "Line pressure 160 bar, pads 8.5 mm", null));
+        double motorTemp = faults.contains(Fault.MOTOR_OVERHEAT) ? 148 : 62 + Math.abs(car.mechanicalPower()) / 8000;
+        checks.add(check(Subsystem.MOTOR, String.format("%.0f \u00B0C, power limit %.0f %%", motorTemp,
+                car.driveLimit() * 100), faults.contains(Fault.MOTOR_OVERHEAT) ? Fault.MOTOR_OVERHEAT : null));
+        double soc = car.battery().stateOfCharge();
+        boolean cells = faults.contains(Fault.BATTERY_CELL_IMBALANCE);
+        String battery = String.format("%.0f %% charge, cell spread %d mV", soc * 100, cells ? 186 : 9);
+        if (cells) {
+            checks.add(check(Subsystem.BATTERY, battery, Fault.BATTERY_CELL_IMBALANCE));
+        } else {
+            checks.add(new DiagnosticReport.Check(Subsystem.BATTERY, soc < 0.15 ? DiagnosticReport.Status.WARNING
+                    : DiagnosticReport.Status.OK, soc < 0.15 ? battery + ": charge soon" : battery, null));
+        }
+        checks.add(check(Subsystem.STEERING, String.format("Angle %.1f\u00B0, rack response normal",
+                Math.toDegrees(applied.steerAngle())), null));
+        return new DiagnosticReport(time, checks);
+    }
+
+    private static DiagnosticReport.Check check(Subsystem subsystem, String reading, Fault fault) {
+        return new DiagnosticReport.Check(subsystem, fault == null ? DiagnosticReport.Status.OK
+                : fault.severity() == Alert.Severity.CRITICAL ? DiagnosticReport.Status.FAULT
+                : DiagnosticReport.Status.WARNING, reading, fault);
+    }
+
+    /**
+     * While a software update installs the car stays in Park: gear changes, the autopilot and
+     * parking are refused.
+     */
+    public void setSoftwareUpdating(boolean updating) {
+        softwareUpdating = updating;
+        if (updating) {
+            parking = null;
+            setMode(DriveMode.MANUAL);
+            gearSelector.force(Gear.PARK);
+        }
+    }
+
+    /** True when the car is stopped in Park with nobody driving it (safe for an update). */
+    public boolean isParkedSafely() {
+        return Math.abs(car.forwardSpeed()) < 0.1 && gearSelector.gear() == Gear.PARK && mode == DriveMode.MANUAL;
+    }
+
     /** Follow distance to the vehicle ahead, s. */
     public void setFollowTimeGap(double seconds) {
         autopilot.setTimeGap(seconds);
@@ -873,6 +1036,15 @@ public final class Simulation {
             setMode(DriveMode.MANUAL);
             parking = null;
             notifyDriver("Parking cancelled");
+            return;
+        }
+        if (softwareUpdating) {
+            notifyDriver("Parking is not available during a software update");
+            return;
+        }
+        if (!sensors.isUltrasonicWorking()) {
+            alerts.publish(time, Alert.Severity.WARNING, Alert.Category.SENSOR,
+                    "Auto park unavailable: parking sensors not working", "Auto park");
             return;
         }
         if (Math.abs(car.forwardSpeed()) > PARK_SEARCH_SPEED) {
@@ -1055,6 +1227,11 @@ public final class Simulation {
         parking = null;
     }
 
+    /** Test hook: puts an object in the world (system tests). */
+    void addTestObstacle(Obstacle obstacle) {
+        scenarios.actors().add(obstacle);
+    }
+
     /** Test hook: sets the car rolling at a speed without driving there first. */
     void setSpeedForTest(double speed) {
         car.setForwardSpeed(speed);
@@ -1106,7 +1283,7 @@ public final class Simulation {
                 new SimulationSnapshot.Settings(maxAutopilotSpeed, emergencyBrakingEnabled, traffic.targetCount()),
                 monitor.lastBrakeTest(), monitor.lastAccelerationTest(), monitor.isAccelerationTestRunning(),
                 monitor.accelerationTestTime(), monitor.isBrakeTestRunning(), paused, timeScale, lightState,
-                timeOfDay(), outsideTemperature()));
+                timeOfDay(), outsideTemperature(), faults, softwareUpdating));
     }
 
     private VehicleState vehicleState() {

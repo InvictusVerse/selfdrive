@@ -5,6 +5,7 @@ import java.util.Set;
 
 import com.selfdriving.alerts.Alert;
 import com.selfdriving.autopilot.SafetyController;
+import com.selfdriving.diagnostics.Fault;
 import com.selfdriving.navigation.Route;
 import com.selfdriving.sensors.SensorReadings;
 import com.selfdriving.vehicle.DriveMode;
@@ -39,6 +40,8 @@ import com.selfdriving.world.OrientedBox;
  * @param lights             exterior lights
  * @param timeOfDay          local clock, seconds since midnight
  * @param outsideTemperature air temperature, degrees Celsius
+ * @param faults             faults present in the car
+ * @param softwareUpdating   a software update is being installed (the car stays in Park)
  */
 public record SimulationSnapshot(
         long tick,
@@ -63,9 +66,12 @@ public record SimulationSnapshot(
         double timeScale,
         LightState lights,
         double timeOfDay,
-        double outsideTemperature) {
+        double outsideTemperature,
+        Set<Fault> faults,
+        boolean softwareUpdating) {
 
     public SimulationSnapshot {
+        faults = faults.isEmpty() ? Set.of() : java.util.Collections.unmodifiableSet(java.util.EnumSet.copyOf(faults));
         actors = List.copyOf(actors);
         closedEdges = Set.copyOf(closedEdges);
         alerts = List.copyOf(alerts);

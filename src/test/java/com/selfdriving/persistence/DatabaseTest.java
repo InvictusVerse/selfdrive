@@ -33,9 +33,10 @@ class DatabaseTest {
     @Test
     @DisplayName("Migrations run once, are recorded, and running them again changes nothing")
     void migrations() throws Exception {
-        assertEquals(List.of("V1__users_settings_alerts_trips.sql", "V2__maintenance_updates_tests.sql"), applied(db));
+        assertEquals(List.of("V1__users_settings_alerts_trips.sql", "V2__maintenance_updates_tests.sql",
+                "V3__update_details.sql"), applied(db));
         Database again = Database.inMemory(name); // same database, opened a second time
-        assertEquals(2, applied(again).size());
+        assertEquals(3, applied(again).size());
         try (Connection c = db.connect(); Statement s = c.createStatement();
              ResultSet r = s.executeQuery("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'")) {
             r.next();

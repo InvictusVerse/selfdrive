@@ -2,6 +2,7 @@ package com.selfdriving.service;
 
 import java.lang.System.Logger.Level;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Map;
 
 import com.selfdriving.alerts.Alert;
@@ -9,8 +10,11 @@ import com.selfdriving.auth.PasswordHasher;
 import com.selfdriving.persistence.AlertRepository;
 import com.selfdriving.persistence.AuditRepository;
 import com.selfdriving.persistence.Database;
+import com.selfdriving.persistence.IssueRepository;
+import com.selfdriving.persistence.MaintenanceRepository;
 import com.selfdriving.persistence.SettingsRepository;
 import com.selfdriving.persistence.TripRepository;
+import com.selfdriving.persistence.UpdateRepository;
 import com.selfdriving.persistence.UserRepository;
 import com.selfdriving.simulation.Simulation;
 
@@ -37,9 +41,20 @@ public final class ApplicationContext implements AutoCloseable {
     private final Recorder recorder;
     private final UserRepository userRepository;
     private final PasswordHasher hasher;
+    private final MaintenanceService maintenance;
+    private final UpdateService updates;
+    private final DashboardService dashboard;
     private volatile Session session;
 
     public ApplicationContext(Database database, Simulation simulation, Clock clock, PasswordHasher hasher) {
+        this(database, simulation, clock, hasher, Duration.ZERO);
+    }
+
+    /**
+     * @param updateStep pause between software update progress steps (zero: instant, for tests)
+     */
+    public ApplicationContext(Database database, Simulation simulation, Clock clock, PasswordHasher hasher,
+                              Duration updateStep) {
         this.database = database;
         this.clock = clock;
         this.simulation = simulation;
@@ -58,6 +73,13 @@ public final class ApplicationContext implements AutoCloseable {
         this.settings = new SettingsService(new SettingsRepository(database), audit);
         this.history = new HistoryService(trips, alerts, audit);
         this.recorder = new Recorder(trips, alerts, writer, clock, () -> session);
+        IssueRepository issues = new IssueRepository(database);
+        MaintenanceRepository maintenanceLog = new MaintenanceRepository(database);
+        UpdateRepository updateRepository = new UpdateRepository(database);
+        this.maintenance = new MaintenanceService(simulation, issues, maintenanceLog, audit, clock);
+        this.updates = new UpdateService(updateRepository, settings, audit, simulation, clock, updateStep);
+        this.dashboard = new DashboardService(userRepository, trips, alerts, audit, issues, maintenanceLog,
+                updateRepository, settings, clock);
 
         auth.onSecurityAlert(message -> simulation.raiseAlert(Alert.Severity.WARNING, Alert.Category.SECURITY,
                 message, "Login"));
@@ -84,7 +106,8 @@ public final class ApplicationContext implements AutoCloseable {
 
     /** The app's database in its data folder. */
     public static ApplicationContext open(Simulation simulation) {
-        return new ApplicationContext(Database.openDefault(), simulation, Clock.systemUTC(), new PasswordHasher());
+        return new ApplicationContext(Database.openDefault(), simulation, Clock.systemUTC(), new PasswordHasher(),
+                Duration.ofMillis(250));
     }
 
     /** Sends the stored settings to the car. */
@@ -138,9 +161,40 @@ public final class ApplicationContext implements AutoCloseable {
         return session;
     }
 
+    // ---- Database console -------------------------------------------------------------------
 
+    /**
+     * Opens H2's web console in the browser, connected to this database (full administrators
+     * only). The console listens on this PC only (H2's default) and closes when the browser
+     * session disconnects.
+     */
+    public void openDatabaseConsole(Session who) {
+        who.require(com.selfdriving.auth.Permission.OPEN_DATABASE_CONSOLE);
+        audit.log(who.userId(), who.user().username(), "DATABASE_CONSOLE", "Opened the H2 web console");
+        Thread t = new Thread(() -> {
+            try (java.sql.Connection c = database.connect()) {
+                org.h2.tools.Server.startWebServer(c);
+            } catch (java.sql.SQLException e) {
+                LOG.log(Level.WARNING, "Database console failed", e);
+            }
+        }, "database-console");
+        t.setDaemon(true);
+        t.start();
+    }
 
     // ---- Services ---------------------------------------------------------------------------
+
+    public MaintenanceService maintenance() {
+        return maintenance;
+    }
+
+    public UpdateService updates() {
+        return updates;
+    }
+
+    public DashboardService dashboard() {
+        return dashboard;
+    }
 
     public Simulation simulation() {
         return simulation;
@@ -182,6 +236,7 @@ public final class ApplicationContext implements AutoCloseable {
     @Override
     public void close() {
         simulation.removeListener(recorder);
+        updates.close();
         writer.close();
     }
 }

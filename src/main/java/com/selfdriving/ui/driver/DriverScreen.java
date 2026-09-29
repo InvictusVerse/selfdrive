@@ -24,6 +24,7 @@ import com.selfdriving.ui.render.CameraRig;
 import com.selfdriving.ui.render.DrivingView;
 import com.selfdriving.vehicle.DriveMode;
 import com.selfdriving.vehicle.DriverInput;
+import com.selfdriving.vehicle.Lights;
 import com.selfdriving.world.Place;
 import com.selfdriving.world.World;
 
@@ -33,7 +34,7 @@ import com.selfdriving.world.World;
  * bottom. Reads the simulation's latest snapshot every frame and sends key presses and button
  * commands back to it.
  */
-public final class DriverScreen implements ControlDock.Actions, NavigationPanel.Actions {
+public final class DriverScreen implements ControlDock.Actions, NavigationPanel.Actions, HudOverlay.LightControls {
 
     private static final double SIDE_PANEL_WIDTH = 640;
     private static final double SLOW_MOTION_SCALE = 0.25;
@@ -42,7 +43,7 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
     private final DriverInput input;
     private final BorderPane root = new BorderPane();
     private final DrivingView drivingView;
-    private final HudOverlay hud = new HudOverlay(this::selectGear, this::acknowledgeAlert);
+    private final HudOverlay hud = new HudOverlay(this::selectGear, this::acknowledgeAlert, this);
     private final NavigationPanel navigation;
     private final TouchControls touch;
     private final Toast toast = new Toast();
@@ -123,6 +124,7 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
 
     public void start() {
         frameTimer.start();
+        drivingView.loadCarModel(simulation.params(), name -> toast.show("Car model: " + name));
     }
 
     public void stop() {
@@ -184,6 +186,12 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
                 drivingView.setLidarVisible(!drivingView.lidarVisible());
                 toast.show(drivingView.lidarVisible() ? "Lidar points on" : "Lidar points off");
             }
+            case COMMA -> toggleIndicator(Lights.Indicator.LEFT);
+            case PERIOD -> toggleIndicator(Lights.Indicator.RIGHT);
+            case SLASH -> toggleHazard();
+            case N -> cycleHeadlights();
+            case K -> toggleMainBeam();
+            case J -> simulation.submit(sim -> sim.setHeadlightFlash(true));
             default -> handled = false;
         }
         if (handled) {
@@ -193,6 +201,11 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
 
     private void onKeyReleased(KeyEvent event) {
         heldKeys.remove(event.getCode());
+        if (event.getCode() == KeyCode.J) {
+            simulation.submit(sim -> sim.setHeadlightFlash(false));
+            event.consume();
+            return;
+        }
         if (setDrivingKey(event.getCode(), false)) {
             event.consume();
         }
@@ -344,6 +357,36 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
     @Override
     public void clearScenarios() {
         simulation.submit(Simulation::clearScenarios);
+    }
+
+    // ---- Actions (lights) ------------------------------------------------------------------
+
+    @Override
+    public void toggleIndicator(Lights.Indicator side) {
+        simulation.submit(sim -> sim.toggleIndicator(side));
+    }
+
+    @Override
+    public void toggleHazard() {
+        simulation.submit(Simulation::toggleHazard);
+    }
+
+    @Override
+    public void cycleHeadlights() {
+        simulation.submit(Simulation::cycleHeadlights);
+    }
+
+    @Override
+    public void toggleMainBeam() {
+        simulation.submit(Simulation::toggleMainBeam);
+    }
+
+    /** Jumps the clock to midday or to the evening, to see the headlights at work. */
+    @Override
+    public void toggleNight() {
+        boolean dark = simulation.latest().lights().dark();
+        simulation.submit(sim -> sim.setTimeOfDay((dark ? 12 : 21) * 3600.0));
+        toast.show(dark ? "Clock set to 12:00" : "Clock set to 21:00");
     }
 
     private void acknowledgeAlert(long id) {

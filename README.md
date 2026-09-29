@@ -32,6 +32,10 @@ Maven does not need to be installed. The wrapper downloads it on first use.
 
 **Touchscreen or mouse:** tap **D**, hold the on-screen **ACCEL** pedal, and drag the steering wheel.
 
+**Lights:** **,** and **.** indicators (they cancel after the turn), **/** hazards, **N** headlights (Off, Auto, On), **K** main beam, hold **J** to flash. The light symbols under the speed can be tapped, and clicking the clock switches between day and night.
+
+**Car model (optional):** the car is drawn in code. A detailed glTF model can be dropped into `assets/models/car/` instead; see the [README there](assets/models/car/README.md).
+
 **Autopilot:** choose a destination in the Navigation card (the fastest route is planned with A\*), then press **Start autopilot** or **E**. Brake or steer to take over, and press **X** for an emergency stop. The **Pedestrian**, **Stopped car** and **Road closed** buttons put test situations in the car's path. Press **L** to show the lidar points.
 
 In IntelliJ IDEA, open the folder and choose **Run App** from the run dropdown. The shared configurations in `.run/` load automatically.

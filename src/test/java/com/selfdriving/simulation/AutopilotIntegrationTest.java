@@ -17,6 +17,7 @@ import com.selfdriving.physics.CarBody;
 import com.selfdriving.physics.Gear;
 import com.selfdriving.physics.VehicleParams;
 import com.selfdriving.vehicle.DriveMode;
+import com.selfdriving.vehicle.Lights;
 import com.selfdriving.world.Obstacle;
 import com.selfdriving.world.Place;
 import com.selfdriving.world.World;
@@ -86,8 +87,20 @@ class AutopilotIntegrationTest {
         double length = sim.latest().navigation().route().length();
         assertTrue(length > 1000, "route length " + length);
 
-        boolean arrived = runUntil(300, s -> s.mode() == DriveMode.MANUAL);
+        int[] turnsChecked = {0};
+        boolean arrived = runUntil(300, s -> {
+            // Indicating before every turn, on the correct side.
+            SimulationSnapshot.Navigation nav = s.navigation();
+            if (nav != null && nav.distanceToNext() < 30 && !nav.nextInstruction().startsWith("Arrive")) {
+                Lights.Indicator expected = nav.nextInstruction().startsWith("Turn left")
+                        ? Lights.Indicator.LEFT : Lights.Indicator.RIGHT;
+                assertEquals(expected, s.lights().indicator(), nav.nextInstruction());
+                turnsChecked[0]++;
+            }
+            return s.mode() == DriveMode.MANUAL;
+        });
         assertTrue(arrived, "arrived within 5 minutes");
+        assertTrue(turnsChecked[0] > 0, "the route has turns");
         SimulationSnapshot s = sim.latest();
         assertEquals(Gear.PARK, s.vehicle().gear());
         assertNull(s.navigation(), "route finished");

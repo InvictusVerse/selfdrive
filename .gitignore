@@ -15,6 +15,12 @@ dist/
 # Private project notebook (discussions, audits, reports): kept on this PC only
 project-docs/
 
+# Third-party 3D model files: installed locally, never committed (size and licensing)
+assets/models/**/*.glb
+assets/models/**/*.gltf
+assets/models/**/*.zip
+assets/models/**/*.bin
+
 # Runtime data (H2 database files, logs)
 data/
 logs/

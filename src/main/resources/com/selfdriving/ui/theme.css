@@ -446,3 +446,64 @@
     -fx-text-fill: -sd-text;
     -fx-font-size: 12px;
 }
+
+/* ---- Lights, tell-tales, clock -------------------------------------------------------- */
+
+.icon {
+    -fx-stroke-width: 1.6;
+    -fx-stroke-line-cap: round;
+    -fx-stroke-line-join: round;
+}
+
+.icon-stroked {
+    -fx-fill: transparent;
+    -fx-stroke: #4a4f57;
+}
+
+.icon-filled {
+    -fx-fill: #3a3e45;
+    -fx-stroke: transparent;
+}
+
+.icon-stroked.lit-green { -fx-stroke: -sd-success; }
+.icon-filled.lit-green { -fx-fill: -sd-success; }
+.icon-stroked.lit-blue { -fx-stroke: #4d8dff; }
+.icon-filled.lit-blue { -fx-fill: #4d8dff; }
+.icon-stroked.lit-red { -fx-stroke: -sd-danger; }
+.icon-filled.lit-red { -fx-fill: -sd-danger; }
+.icon-stroked.lit-amber { -fx-stroke: -sd-warning; }
+.icon-filled.lit-amber { -fx-fill: -sd-warning; }
+
+.icon-button {
+    -fx-padding: 5;
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+}
+
+.icon-button:hover {
+    -fx-background-color: rgba(62, 106, 225, 0.22);
+}
+
+.icon-box {
+    -fx-padding: 2 2 2 4;
+}
+
+.set-speed {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -sd-text-muted;
+    -fx-text-alignment: center;
+    -fx-line-spacing: -4;
+}
+
+.set-speed.engaged {
+    -fx-text-fill: #4d8dff;
+}
+
+.clock-chip {
+    -fx-padding: 4 12 4 12;
+    -fx-background-radius: 999;
+    -fx-background-color: rgba(31, 34, 40, 0.85);
+    -fx-text-fill: -sd-text;
+    -fx-cursor: hand;
+}

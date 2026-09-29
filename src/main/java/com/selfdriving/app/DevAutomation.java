@@ -23,6 +23,7 @@ import com.selfdriving.simulation.Simulation;
 import com.selfdriving.ui.driver.DriverScreen;
 import com.selfdriving.ui.render.CameraRig;
 import com.selfdriving.vehicle.DriverInput;
+import com.selfdriving.vehicle.Lights;
 
 /**
  * Developer tool: plays a scripted drive and can save screenshots, for checking visuals and
@@ -38,7 +39,9 @@ import com.selfdriving.vehicle.DriverInput;
  * {@code forces} (0/1), {@code abs} (0/1), {@code help} (0/1), {@code size} (window size,
  * e.g. 1280x720), {@code destination} (place name), {@code autopilot} (0/1),
  * {@code scenario} (pedestrian/stopped/closed/clear), {@code lidar} (0/1),
- * {@code speed} (time scale, e.g. 4), {@code shot} (PNG path), {@code exit}.
+ * {@code speed} (time scale, e.g. 4), {@code indicator} (LEFT/RIGHT), {@code hazard},
+ * {@code headlights} (OFF/AUTO/ON), {@code mainbeam}, {@code clock} (e.g. 21.30),
+ * {@code fps} (seconds to measure the frame rate), {@code shot} (PNG path), {@code exit}. (The step separator ':' means clock times use '.'.)
  */
 final class DevAutomation {
 
@@ -99,6 +102,17 @@ final class DevAutomation {
             });
             case "lidar" -> screen.drivingView().setLidarVisible(on);
             case "speed" -> simulation.submit(sim -> sim.setTimeScale(Double.parseDouble(value)));
+            case "indicator" -> simulation.submit(sim -> sim.toggleIndicator(
+                    Lights.Indicator.valueOf(value.toUpperCase(Locale.ROOT))));
+            case "hazard" -> simulation.submit(Simulation::toggleHazard);
+            case "headlights" -> simulation.submit(sim -> sim.setHeadlightMode(
+                    Lights.HeadlightMode.valueOf(value.toUpperCase(Locale.ROOT))));
+            case "mainbeam" -> simulation.submit(Simulation::toggleMainBeam);
+            case "clock" -> {
+                String[] hm = value.split("[.h]");
+                double seconds = Integer.parseInt(hm[0]) * 3600.0 + (hm.length > 1 ? Integer.parseInt(hm[1]) * 60 : 0);
+                simulation.submit(sim -> sim.setTimeOfDay(seconds));
+            }
             case "size" -> {
                 String[] wh = value.toLowerCase(Locale.ROOT).split("x");
                 javafx.stage.Stage stage = (javafx.stage.Stage) scene.getWindow();
@@ -107,9 +121,37 @@ final class DevAutomation {
                 stage.setHeight(Double.parseDouble(wh[1]));
             }
             case "shot" -> saveScreenshot(scene, Path.of(value));
+            case "fps" -> measureFrameRate(Double.parseDouble(value));
             case "exit" -> Platform.exit();
             default -> LOG.log(Level.WARNING, "Unknown script action: {0}", action);
         }
+    }
+
+    /** Counts rendered frames for a while and logs the average and worst frame time. */
+    private static void measureFrameRate(double seconds) {
+        javafx.animation.AnimationTimer timer = new javafx.animation.AnimationTimer() {
+            private long first;
+            private long last;
+            private long worst;
+            private int frames;
+
+            @Override
+            public void handle(long now) {
+                if (first == 0) {
+                    first = now;
+                } else {
+                    worst = Math.max(worst, now - last);
+                    frames++;
+                }
+                last = now;
+                if (now - first > seconds * 1e9) {
+                    stop();
+                    LOG.log(Level.INFO, String.format("Frame rate: %.1f fps average, worst frame %.1f ms",
+                            frames / ((now - first) / 1e9), worst / 1e6));
+                }
+            }
+        };
+        timer.start();
     }
 
     private static Gear parseGear(String letter) {

@@ -30,6 +30,8 @@ import com.selfdriving.vehicle.DriveMode;
 import com.selfdriving.vehicle.DriverControls;
 import com.selfdriving.vehicle.DriverInput;
 import com.selfdriving.vehicle.GearSelector;
+import com.selfdriving.vehicle.LightState;
+import com.selfdriving.vehicle.Lights;
 import com.selfdriving.vehicle.VehicleState;
 import com.selfdriving.world.Obstacle;
 import com.selfdriving.world.Place;
@@ -68,6 +70,10 @@ public final class Simulation {
     private static final double DEFAULT_MAX_AUTOPILOT_SPEED = 100 / 3.6;
     private static final int SENSOR_INTERVAL_TICKS = 2;
     private static final int ALERTS_IN_SNAPSHOT = 12;
+    /** The autopilot switches the indicator on this far before a turn, m. */
+    private static final double INDICATE_BEFORE_TURN = 45;
+    /** Distance past the start of a turn manoeuvre until the car is through the junction, m. */
+    private static final double TURN_LENGTH = 20;
 
     private final VehicleParams params;
     private final World world;
@@ -83,6 +89,7 @@ public final class Simulation {
     private final CollisionSystem collisions = new CollisionSystem();
     private final ScenarioManager scenarios = new ScenarioManager();
     private final AlertBus alerts = new AlertBus();
+    private final Lights lights = new Lights();
     private final Pose start;
 
     private final Queue<Consumer<Simulation>> commands = new ConcurrentLinkedQueue<>();
@@ -105,6 +112,9 @@ public final class Simulation {
     private volatile double timeScale = 1.0;
     private long tick;
     private double time;
+    private LightState lightState = LightState.off();
+    /** Clock time (seconds since midnight) at simulation time zero. */
+    private double clockStart = java.time.LocalTime.now().toSecondOfDay();
 
     public Simulation(VehicleParams params, World world) {
         this(params, world, world.start());
@@ -126,6 +136,7 @@ public final class Simulation {
             }
         });
         car.reset(start.x(), start.y(), start.heading());
+        updateLights(0);
         publish();
     }
 
@@ -222,6 +233,7 @@ public final class Simulation {
         }
         tick++;
         time += dt;
+        updateLights(dt);
 
         monitor.update(dt, car.forwardSpeed(), car.distance(), inputs.throttle(), inputs.brake(),
                 gearSelector.gear(), surface, mode == DriveMode.MANUAL).ifPresent(this::notifyDriver);
@@ -259,6 +271,42 @@ public final class Simulation {
         }
         return new VehicleInputs(controls.throttle(), controls.brake(), controls.steerAngle(speed),
                 gearSelector.gear());
+    }
+
+    /** The autopilot indicates before its turns; the lamps follow pedals, gear and daylight. */
+    private void updateLights(double dt) {
+        Lights.Indicator auto = Lights.Indicator.OFF;
+        if (mode == DriveMode.AUTOPILOT && tracker != null) {
+            // From shortly before the turn until the car is through it, as a driver would.
+            for (Route.Maneuver m : tracker.route().maneuvers()) {
+                double ahead = m.arc() - tracker.arc();
+                if (ahead < INDICATE_BEFORE_TURN && ahead > -TURN_LENGTH && m.type() != Route.Maneuver.Type.ARRIVE) {
+                    auto = m.type() == Route.Maneuver.Type.LEFT ? Lights.Indicator.LEFT : Lights.Indicator.RIGHT;
+                    break;
+                }
+            }
+        }
+        lights.setAutoIndicator(auto);
+        double steer = mode == DriveMode.MANUAL ? controls.steer() : applied.steerAngle() / params.maxSteerAngle();
+        lightState = lights.update(dt, steer, applied.brake(), car.accelForward(), car.forwardSpeed(),
+                gearSelector.gear(), isDark());
+    }
+
+    /** Local clock, seconds since midnight. */
+    public double timeOfDay() {
+        return ((clockStart + time) % 86_400 + 86_400) % 86_400;
+    }
+
+    /** Between sunset and sunrise (typical for India: about 18:30 to 06:15). */
+    private boolean isDark() {
+        double hours = timeOfDay() / 3600;
+        return hours < 6.25 || hours >= 18.5;
+    }
+
+    /** A simple daily temperature curve: coolest around 03:00 (22 °C), warmest around 15:00 (33 °C). */
+    private double outsideTemperature() {
+        double hours = timeOfDay() / 3600;
+        return 27.5 + 5.5 * Math.cos(2 * Math.PI * (hours - 15) / 24);
     }
 
     private void raiseSafetyAlerts() {
@@ -330,8 +378,57 @@ public final class Simulation {
         }
     }
 
+    // ---- Commands: lights ---------------------------------------------------------------------
+
+    /** Indicator lever: the same side again switches it off. */
+    public void toggleIndicator(Lights.Indicator side) {
+        lights.toggleIndicator(side);
+        updateLights(0);
+    }
+
+    public void toggleHazard() {
+        lights.toggleHazard();
+        updateLights(0);
+    }
+
+    /** Headlight switch: Off, Auto, On. */
+    public void cycleHeadlights() {
+        lights.setHeadlightMode(lights.headlightMode().next());
+        updateLights(0);
+        notifyDriver("Headlights: " + lights.headlightMode().label());
+    }
+
+    public void setHeadlightMode(Lights.HeadlightMode headlightMode) {
+        lights.setHeadlightMode(headlightMode);
+        updateLights(0);
+    }
+
+    /** Main beam on or off (the dipper switch). */
+    public void toggleMainBeam() {
+        lights.toggleMainBeam();
+        updateLights(0);
+        if (lightState.highBeam()) {
+            notifyDriver("Main beam on");
+        } else if (!lightState.lowBeam()) {
+            notifyDriver("Main beam works with the headlights on");
+        }
+    }
+
+    /** Flash the main beam while held. */
+    public void setHeadlightFlash(boolean on) {
+        lights.setFlash(on);
+        updateLights(0);
+    }
+
+    /** Sets the clock (e.g. to try the headlights at night). */
+    public void setTimeOfDay(double secondsSinceMidnight) {
+        clockStart = secondsSinceMidnight - time;
+        updateLights(0);
+    }
+
     /** Brakes to a stop at once and secures the car in Park (overrules the autopilot). */
     public void emergencyStop() {
+        lights.setHazard(true); // warn following traffic, as cars do under emergency braking
         setMode(DriveMode.EMERGENCY_STOP);
         alerts.publish(time, Alert.Severity.CRITICAL, Alert.Category.BRAKES, "Emergency stop requested",
                 "Driver");
@@ -588,6 +685,10 @@ public final class Simulation {
         safety.reset();
         setMode(DriveMode.MANUAL);
         tracker = null;
+        Lights.HeadlightMode headlightMode = lights.headlightMode();
+        lights.reset();
+        lights.setHeadlightMode(headlightMode);
+        updateLights(0);
         notifyDriver("Car reset to the start line");
     }
 
@@ -629,7 +730,8 @@ public final class Simulation {
                 readings, actors, closedEdges, alerts.recent(ALERTS_IN_SNAPSHOT), alerts.unacknowledgedCritical(),
                 new SimulationSnapshot.Settings(maxAutopilotSpeed, emergencyBrakingEnabled),
                 monitor.lastBrakeTest(), monitor.lastAccelerationTest(), monitor.isAccelerationTestRunning(),
-                monitor.accelerationTestTime(), monitor.isBrakeTestRunning(), paused, timeScale));
+                monitor.accelerationTestTime(), monitor.isBrakeTestRunning(), paused, timeScale, lightState,
+                timeOfDay(), outsideTemperature()));
     }
 
     private VehicleState vehicleState() {

@@ -8,6 +8,7 @@ import com.selfdriving.autopilot.SafetyController;
 import com.selfdriving.navigation.Route;
 import com.selfdriving.sensors.SensorReadings;
 import com.selfdriving.vehicle.DriveMode;
+import com.selfdriving.vehicle.LightState;
 import com.selfdriving.vehicle.VehicleState;
 import com.selfdriving.world.Obstacle;
 import com.selfdriving.world.OrientedBox;
@@ -35,6 +36,9 @@ import com.selfdriving.world.OrientedBox;
  * @param brakeTestRunning   true while a braking test is being measured
  * @param paused             simulation paused
  * @param timeScale          simulation speed multiplier (1 = real time)
+ * @param lights             exterior lights
+ * @param timeOfDay          local clock, seconds since midnight
+ * @param outsideTemperature air temperature, degrees Celsius
  */
 public record SimulationSnapshot(
         long tick,
@@ -56,7 +60,10 @@ public record SimulationSnapshot(
         double accelTestTime,
         boolean brakeTestRunning,
         boolean paused,
-        double timeScale) {
+        double timeScale,
+        LightState lights,
+        double timeOfDay,
+        double outsideTemperature) {
 
     public SimulationSnapshot {
         actors = List.copyOf(actors);

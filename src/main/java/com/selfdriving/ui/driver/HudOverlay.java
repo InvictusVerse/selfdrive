@@ -10,11 +10,13 @@ import java.util.function.LongConsumer;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.AccessibleRole;
+import javafx.scene.Group;
 import javafx.scene.control.Label;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 
 import com.selfdriving.alerts.Alert;
@@ -22,6 +24,8 @@ import com.selfdriving.physics.Gear;
 import com.selfdriving.simulation.SimulationSnapshot;
 import com.selfdriving.ui.render.CameraRig;
 import com.selfdriving.vehicle.DriveMode;
+import com.selfdriving.vehicle.LightState;
+import com.selfdriving.vehicle.Lights;
 import com.selfdriving.vehicle.VehicleState;
 
 /**
@@ -51,25 +55,63 @@ final class HudOverlay {
     private final Label safetyBanner = new Label();
     private final Label cameraLabel = new Label();
     private final LongConsumer onAcknowledge;
+    private final Label setSpeed = new Label();
+    private final Label clock = new Label();
+    private final Group autopilotIcon = Icons.autopilot();
+    private final Group leftArrow = Icons.indicatorLeft();
+    private final Group rightArrow = Icons.indicatorRight();
+    private final Group lowBeam = Icons.lowBeam();
+    private final Group highBeam = Icons.highBeam();
+    private final Group hazard = Icons.hazard();
     private List<Alert> shownAlerts = List.of();
+
+    /** Light switches on the display (the tell-tales can be tapped). */
+    interface LightControls {
+        void toggleIndicator(Lights.Indicator side);
+
+        void toggleHazard();
+
+        void cycleHeadlights();
+
+        void toggleMainBeam();
+
+        void toggleNight();
+    }
 
     /**
      * @param onGearTapped  called when the driver taps a letter of the drive selector
      * @param onAcknowledge called with an alert id when the driver dismisses a critical alert
+     * @param lightControls tapping the light tell-tales and the clock
      */
-    HudOverlay(Consumer<Gear> onGearTapped, LongConsumer onAcknowledge) {
+    HudOverlay(Consumer<Gear> onGearTapped, LongConsumer onAcknowledge, LightControls lightControls) {
         this.onAcknowledge = onAcknowledge;
 
         Label unit = new Label("km/h");
         unit.getStyleClass().add("hud-unit");
         speed.getStyleClass().add("hud-speed");
         speed.setAccessibleText("Speed");
+        HBox speedRow = new HBox(8, speed, unit);
+        speedRow.setAlignment(Pos.BASELINE_LEFT);
+        speedRow.setMouseTransparent(true);
+
         limit.getStyleClass().add("limit-sign");
         limit.setAccessibleText("Speed limit");
         limit.setVisible(false);
-        HBox speedRow = new HBox(8, speed, unit, limit);
-        speedRow.setAlignment(Pos.CENTER_LEFT);
-        speedRow.setMouseTransparent(true);
+        limit.setManaged(false);
+        setSpeed.getStyleClass().add("set-speed");
+        setSpeed.setAccessibleText("Autopilot maximum speed");
+        HBox signRow = new HBox(10, limit, setSpeed);
+        signRow.setAlignment(Pos.CENTER_LEFT);
+        signRow.setMouseTransparent(true);
+
+        HBox telltales = new HBox(6,
+                Icons.button(leftArrow, "Left indicator (,)", () -> lightControls.toggleIndicator(Lights.Indicator.LEFT)),
+                Icons.button(lowBeam, "Headlights: Off, Auto, On (N)", lightControls::cycleHeadlights),
+                Icons.button(highBeam, "Main beam / dipper (K)", lightControls::toggleMainBeam),
+                Icons.button(hazard, "Hazard lights (/)", lightControls::toggleHazard),
+                Icons.button(rightArrow, "Right indicator (.)", () -> lightControls.toggleIndicator(Lights.Indicator.RIGHT)));
+        telltales.setAlignment(Pos.CENTER_LEFT);
+        telltales.setPickOnBounds(false);
 
         HBox gears = new HBox(2);
         gears.setPickOnBounds(false);
@@ -84,8 +126,15 @@ final class HudOverlay {
         }
         battery.getStyleClass().add("hud-battery");
         battery.setMouseTransparent(true);
+        battery.setMinWidth(Region.USE_PREF_SIZE);
+        StackPane apIcon = new StackPane(autopilotIcon);
+        apIcon.getStyleClass().add("icon-box");
+        apIcon.setMouseTransparent(true);
+        HBox topRow = new HBox(10, gears, apIcon, battery);
+        topRow.setAlignment(Pos.CENTER_LEFT);
+        topRow.setPickOnBounds(false);
 
-        VBox left = new VBox(2, speedRow, gears, battery);
+        VBox left = new VBox(4, topRow, speedRow, signRow, telltales);
         left.getStyleClass().add("hud");
         left.setMaxWidth(VBox.USE_PREF_SIZE);
         left.setPickOnBounds(false);
@@ -96,9 +145,17 @@ final class HudOverlay {
         timer.getStyleClass().add("timer-chip");
         timer.setVisible(false);
         timer.setManaged(false);
-        HBox chips = new HBox(8, timer, absLight, tcsLight, mode);
+        clock.getStyleClass().add("clock-chip");
+        clock.setAccessibleRole(AccessibleRole.BUTTON);
+        clock.setAccessibleText("Clock and outside temperature. Click to switch between day and night.");
+        javafx.scene.control.Tooltip.install(clock, new javafx.scene.control.Tooltip("Click: day / night"));
+        clock.setOnMouseClicked(e -> lightControls.toggleNight());
+        for (Label chip : List.of(timer, absLight, tcsLight, clock, mode)) {
+            chip.setMinWidth(Region.USE_PREF_SIZE); // the turn banner gives way first
+        }
+        HBox chips = new HBox(8, timer, absLight, tcsLight, clock, mode);
         chips.setAlignment(Pos.TOP_RIGHT);
-        chips.setMouseTransparent(true);
+        chips.setPickOnBounds(false);
         autopilotStatus.getStyleClass().add("autopilot-status");
         autopilotStatus.setMouseTransparent(true);
         criticalAlerts.setAlignment(Pos.TOP_RIGHT);
@@ -111,6 +168,7 @@ final class HudOverlay {
 
         turn.getStyleClass().add("turn-banner");
         turn.setVisible(false);
+        turn.setMinWidth(0);
         safetyBanner.getStyleClass().add("safety-banner");
         safetyBanner.setVisible(false);
         VBox centre = new VBox(8, turn, safetyBanner);
@@ -143,10 +201,26 @@ final class HudOverlay {
         for (Map.Entry<Gear, Label> entry : gearLetters.entrySet()) {
             setClass(entry.getValue(), "active", entry.getKey() == s.gear());
         }
-        battery.setText(String.format("Battery %.0f %%  \u00B7  %.0f km", s.batteryCharge() * 100, s.rangeKm()));
+        battery.setText(String.format("%.0f %%  \u00B7  %.0f km", s.batteryCharge() * 100, s.rangeKm()));
+
+        boolean autopilotOn = snapshot.mode() == DriveMode.AUTOPILOT;
+        Icons.light(autopilotIcon, autopilotOn ? "lit-blue" : null);
+        setSpeed.setText(Math.round(snapshot.settings().maxAutopilotSpeed() * 3.6) + "\nMAX");
+        setClass(setSpeed, "engaged", autopilotOn);
+
+        LightState lights = snapshot.lights();
+        Icons.light(leftArrow, lights.leftLit() ? "lit-green" : null);
+        Icons.light(rightArrow, lights.rightLit() ? "lit-green" : null);
+        Icons.light(lowBeam, lights.lowBeam() ? "lit-green" : null);
+        Icons.light(highBeam, lights.highBeam() ? "lit-blue" : null);
+        Icons.light(hazard, lights.hazard() ? (lights.blinkOn() ? "lit-red" : null) : null);
+        int minutes = (int) (snapshot.timeOfDay() / 60);
+        clock.setText(String.format("%02d:%02d   %.0f\u00B0C", minutes / 60 % 24, minutes % 60,
+                snapshot.outsideTemperature()));
 
         SimulationSnapshot.Navigation nav = snapshot.navigation();
         limit.setVisible(nav != null);
+        limit.setManaged(nav != null);
         if (nav != null) {
             limit.setText(Long.toString(Math.round(nav.speedLimit() * 3.6)));
             turn.setText(arrow(nav.nextInstruction()) + "  " + nav.nextInstruction() + "   "

@@ -20,6 +20,7 @@ final class HelpOverlay {
             {"F", "Show tyre force arrows"},
             {"M  /  P", "Slow motion  /  pause"},
             {"Backspace", "Reset to the start line"},
+            {"F11", "Full screen on or off"},
             {"H", "Show or hide this panel"},
     };
 

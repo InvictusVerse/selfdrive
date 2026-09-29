@@ -368,6 +368,7 @@ The schema is created by versioned SQL scripts in `src/main/resources/db/` that 
 ✅ *Built:* driver display, 3D car and proving ground (`ui.driver`, `ui.render`, `world`) · 📐 *Designed:* login (Stage 3), Admin and Technician dashboards (Stage 4), city, route and obstacles (Stage 2)
 
 - **Look:** dark Tesla-style theme (`theme.css`, with matching canvas colours in `ui.Palette`): near-black background, soft grey cards, one accent blue, and green/amber/red for status.
+- **Window size:** the app opens at 1600 × 900 if the desktop has room. Otherwise it opens maximised. Sizes are in scaled pixels, so Windows display scaling is handled (e.g. 1920 × 1080 at 125 % = 1536 × 864). The layout works down to 1280 × 720; below 1420 px wide the small group labels in the bottom bar are hidden.
 - **Driver display** (`DriverScreen`), laid out like an EV centre screen:
 
   | Area | Contents |
@@ -379,7 +380,7 @@ The schema is created by versioned SQL scripts in `src/main/resources/db/` that 
   | ENERGY | Power bar (white = drawing power, green = regenerating), power, motor rpm, battery, range, average consumption, trip, and the latest braking and 0–100 results |
   | Dock (bottom) | P R N D · Dry / Wet / Snow / Ice · ABS · TCS · View · Forces · Slow-mo · Pause · Reset · Keys |
 
-- **Keyboard:** W/↑ accelerate · S/↓ brake · A D/← → steer · Space full brake · 1–4 = P R N D · G surface · B ABS · T TCS · C camera · F forces · M slow motion · P pause · Backspace reset · H help. Dock buttons never take keyboard focus, so driving keys always reach the car; every button also has a shortcut and a tooltip. If the window loses focus, all keys are released so the car doesn't keep accelerating.
+- **Keyboard:** W/↑ accelerate · S/↓ brake · A D/← → steer · Space full brake · 1–4 = P R N D · G surface · B ABS · T TCS · C camera · F forces · M slow motion · P pause · Backspace reset · H help · F11 full screen. Dock buttons never take keyboard focus, so driving keys always reach the car; every button also has a shortcut and a tooltip. If the window loses focus, all keys are released so the car doesn't keep accelerating.
 - **Road tests run automatically** (`PerformanceMonitor`). Pressing the brake fully above 18 km/h starts a braking test that ends when the car stops, and shows *measured vs v²/(2(μ+C<sub>rr</sub>)g)*. Pulling away from a stop at full throttle in Drive times 0–100 km/h. Lifting off or braking cancels the run.
 - **3D models generated in code** (`CarModel`, `WorldModel`, `MeshFactory`):
   - The car body is *lofted*: 44 rounded-box cross-sections whose height and width follow smooth side and plan profiles (monotone cubic curves, so no bumps). A dark glass cabin is lofted the same way.

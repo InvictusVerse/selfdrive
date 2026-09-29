@@ -35,8 +35,8 @@ import com.selfdriving.vehicle.DriverInput;
  * </pre>
  * Actions: {@code throttle, brake, fullbrake, left, right} (0 or 1), {@code gear} (P/R/N/D),
  * {@code surface} (DRY/WET/SNOW/ICE), {@code camera} (CHASE/AUTOPILOT/TOP/SIDE),
- * {@code forces} (0/1), {@code abs} (0/1), {@code help} (0/1), {@code shot} (PNG path),
- * {@code exit}.
+ * {@code forces} (0/1), {@code abs} (0/1), {@code help} (0/1), {@code size} (window size,
+ * e.g. 1280x720), {@code shot} (PNG path), {@code exit}.
  */
 final class DevAutomation {
 
@@ -85,6 +85,13 @@ final class DevAutomation {
                     CameraRig.Mode.valueOf(value.toUpperCase(Locale.ROOT)));
             case "forces" -> screen.drivingView().car().setForcesVisible(on);
             case "help" -> screen.setHelpVisible(on);
+            case "size" -> {
+                String[] wh = value.toLowerCase(Locale.ROOT).split("x");
+                javafx.stage.Stage stage = (javafx.stage.Stage) scene.getWindow();
+                stage.setMaximized(false);
+                stage.setWidth(Double.parseDouble(wh[0]));
+                stage.setHeight(Double.parseDouble(wh[1]));
+            }
             case "shot" -> saveScreenshot(scene, Path.of(value));
             case "exit" -> Platform.exit();
             default -> LOG.log(Level.WARNING, "Unknown script action: {0}", action);

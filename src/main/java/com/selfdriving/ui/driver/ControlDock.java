@@ -50,6 +50,9 @@ final class ControlDock {
 
     private static final String[] GEAR_KEYS = {"1", "2", "3", "4"};
 
+    /** Below this dock width the group labels (DRIVE, ROAD...) are hidden to make room. */
+    private static final double LABELS_MIN_WIDTH = 1420;
+
     private final HBox root = new HBox();
     private final Map<Gear, ToggleButton> gearButtons = new EnumMap<>(Gear.class);
     private final Map<Surface, ToggleButton> surfaceButtons = new EnumMap<>(Surface.class);
@@ -111,7 +114,7 @@ final class ControlDock {
         surfaceButtons.forEach((surface, b) -> b.setSelected(surface == s.surface()));
         abs.setSelected(s.absEnabled());
         tcs.setSelected(s.tractionEnabled());
-        camera.setText("View: " + cameraMode.label());
+        camera.setAccessibleText("Camera: " + cameraMode.label());
         forces.setSelected(forcesVisible);
         slow.setSelected(snapshot.timeScale() < 0.99);
         pause.setSelected(snapshot.paused());
@@ -140,14 +143,19 @@ final class ControlDock {
 
     private static void style(ButtonBase b, String tooltip) {
         b.getStyleClass().add("dock-button");
+        b.setMinWidth(Region.USE_PREF_SIZE);
         b.setTooltip(new Tooltip(tooltip));
         b.setAccessibleHelp(tooltip);
         b.setFocusTraversable(false);
     }
 
-    private static Label groupLabel(String text) {
+    private Label groupLabel(String text) {
         Label label = new Label(text);
         label.getStyleClass().add("dock-group-label");
+        label.setMinWidth(Region.USE_PREF_SIZE);
+        // The small group labels are the first thing to go on narrow windows.
+        label.visibleProperty().bind(root.widthProperty().greaterThan(LABELS_MIN_WIDTH));
+        label.managedProperty().bind(label.visibleProperty());
         return label;
     }
 

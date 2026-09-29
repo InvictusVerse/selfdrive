@@ -16,7 +16,8 @@ public record Alert(long id, double time, Severity severity, Category category, 
 
     public enum Severity { INFO, WARNING, CRITICAL }
 
-    public enum Category { OBSTACLE, COLLISION, SENSOR, BRAKES, NAVIGATION, AUTOPILOT, BATTERY, SYSTEM }
+    public enum Category { OBSTACLE, COLLISION, SENSOR, BRAKES, NAVIGATION, AUTOPILOT, BATTERY, SYSTEM, SECURITY, MAINTENANCE,
+        UPDATE }
 
     Alert withAcknowledged() {
         return new Alert(id, time, severity, category, message, source, true);

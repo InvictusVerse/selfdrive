@@ -52,13 +52,24 @@ public final class SafetyController {
     private static final double LAST_MOMENT_TTC = 0.6;
     private static final double STEP = 0.05;
     private static final double MARGIN = 0.35;
-    private static final double REACTION = 0.25;
+    /** Default reaction allowance added to the stopping distance, s (adjustable in the settings). */
+    public static final double DEFAULT_REACTION = 0.25;
     private static final double BUFFER = 1.5;
     private static final double USABLE_FRICTION = 0.85;
     private static final double HOLD_CLEARANCE = 8.0;
 
     private boolean braking;
     private int brakingFor = -1;
+    private double reaction = DEFAULT_REACTION;
+
+    /** Reaction allowance, clamped to 0.1-0.8 s. More means braking starts earlier. */
+    public void setReactionAllowance(double seconds) {
+        reaction = Math.max(0.1, Math.min(0.8, seconds));
+    }
+
+    public double reactionAllowance() {
+        return reaction;
+    }
 
     /**
      * @param enabled  whether emergency braking is switched on
@@ -131,7 +142,7 @@ public final class SafetyController {
         boolean warning = ttc < WARNING_TTC && v > 1.0;
         if (!braking && v > 0.5 && !Double.isInfinite(ttc)) {
             double distanceToImpact = v * ttc;
-            double stopping = v * v / (2 * USABLE_FRICTION * friction * VehicleParams.GRAVITY) + v * REACTION + BUFFER;
+            double stopping = v * v / (2 * USABLE_FRICTION * friction * VehicleParams.GRAVITY) + v * reaction + BUFFER;
             if (distanceToImpact < stopping || ttc < LAST_MOMENT_TTC) {
                 braking = true;
                 brakingFor = threat;

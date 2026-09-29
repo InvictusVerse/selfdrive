@@ -8,6 +8,7 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextInputControl;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
@@ -55,6 +56,7 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
     private final ControlDock dock = new ControlDock(this);
     private final Set<KeyCode> heldKeys = EnumSet.noneOf(KeyCode.class);
     private final AnimationTimer frameTimer;
+    private boolean active;
 
     public DriverScreen(Simulation simulation, World ground) {
         this.simulation = simulation;
@@ -122,13 +124,41 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
         });
     }
 
+    /** Loads the car model. The screen starts drawing once {@link #setActive} turns it on. */
     public void start() {
-        frameTimer.start();
         drivingView.loadCarModel(simulation.params(), name -> toast.show("Car model: " + name));
     }
 
     public void stop() {
-        frameTimer.stop();
+        setActive(false);
+    }
+
+    /**
+     * Whether this screen is showing. While inactive it ignores the keyboard (so other pages can
+     * use it) and stops drawing; the simulation itself keeps running.
+     */
+    public void setActive(boolean active) {
+        if (this.active == active) {
+            return;
+        }
+        this.active = active;
+        if (active) {
+            frameTimer.start();
+        } else {
+            frameTimer.stop();
+            input.releaseAll();
+            heldKeys.clear();
+        }
+    }
+
+    /** Shows or hides the test scenarios (they need the run-scenarios permission). */
+    public void setScenariosAllowed(boolean allowed) {
+        navigation.setScenariosVisible(allowed);
+    }
+
+    /** True for keys typed into a text field, which must not drive the car. */
+    private boolean ignored(KeyEvent event) {
+        return !active || event.getTarget() instanceof TextInputControl;
     }
 
     private void render(double dt) {
@@ -153,6 +183,9 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
     // ---- Keyboard ----------------------------------------------------------------------
 
     private void onKeyPressed(KeyEvent event) {
+        if (ignored(event)) {
+            return;
+        }
         KeyCode code = event.getCode();
         boolean firstPress = heldKeys.add(code);
         if (setDrivingKey(code, true)) {
@@ -203,6 +236,9 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
 
     private void onKeyReleased(KeyEvent event) {
         heldKeys.remove(event.getCode());
+        if (ignored(event)) {
+            return;
+        }
         if (event.getCode() == KeyCode.J) {
             simulation.submit(sim -> sim.setHeadlightFlash(false));
             event.consume();

@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -130,6 +131,9 @@ public final class Simulation {
     private int redLightsRun;
     private ParkingController parking;
     private String parkingStatus = "";
+    private final List<SimulationListener> listeners = new CopyOnWriteArrayList<>();
+    private Trip trip;
+    private long nextTripId = 1;
     /** Clock time (seconds since midnight) at simulation time zero. */
     private double clockStart = java.time.LocalTime.now().toSecondOfDay();
 
@@ -154,6 +158,9 @@ public final class Simulation {
         alerts.subscribe(alert -> {
             if (alert.severity() == Alert.Severity.WARNING) {
                 notifyDriver(alert.message());
+            }
+            for (SimulationListener l : listeners) {
+                l.alertRaised(alert);
             }
         });
         car.reset(start.x(), start.y(), start.heading());
@@ -181,6 +188,23 @@ public final class Simulation {
     /** Next message for the driver, or null. */
     public String pollNotification() {
         return notifications.poll();
+    }
+
+    /** Receives trip and alert events (on the simulation thread). */
+    public void addListener(SimulationListener listener) {
+        listeners.add(listener);
+    }
+
+    public void removeListener(SimulationListener listener) {
+        listeners.remove(listener);
+    }
+
+    /**
+     * Raises an alert from outside the car (security, maintenance, updates). Safe from any
+     * thread: it is queued and published on the simulation thread.
+     */
+    public void raiseAlert(Alert.Severity severity, Alert.Category category, String message, String source) {
+        submit(s -> s.alerts.publish(s.time, severity, category, message, source));
     }
 
     public boolean isPaused() {
@@ -211,6 +235,7 @@ public final class Simulation {
             changed = true;
         }
         if (changed) {
+            checkTripCancelled();
             publish();
         }
     }
@@ -261,6 +286,10 @@ public final class Simulation {
         }
         tick++;
         time += dt;
+        if (trip != null && mode == DriveMode.AUTOPILOT) {
+            trip.autopilotSeconds += dt;
+        }
+        checkTripCancelled();
         updateLights(dt);
 
         monitor.update(dt, car.forwardSpeed(), car.distance(), inputs.throttle(), inputs.brake(),
@@ -475,11 +504,82 @@ public final class Simulation {
         wasBraking = assessment.emergencyBraking();
     }
 
+    // ---- Trips ------------------------------------------------------------------------------
+
+    /** The trip under way: from planning a route until arriving or giving up. */
+    private static final class Trip {
+        final long id;
+        final double startTime;
+        final double startDistance;
+        final double startEnergy;
+        double autopilotSeconds;
+
+        Trip(long id, double startTime, double startDistance, double startEnergy) {
+            this.id = id;
+            this.startTime = startTime;
+            this.startDistance = startDistance;
+            this.startEnergy = startEnergy;
+        }
+    }
+
+    private void startTrip(Route route) {
+        if (trip != null) {
+            endTrip(SimulationListener.Outcome.CANCELLED);
+        }
+        trip = new Trip(nextTripId++, time, car.distance(), car.energyUsedJoules());
+        String origin = describeLocation();
+        for (SimulationListener l : listeners) {
+            l.tripStarted(trip.id, origin, route.destination(), route.length(), route.estimatedSeconds());
+        }
+    }
+
+    private void endTrip(SimulationListener.Outcome outcome) {
+        if (trip == null) {
+            return;
+        }
+        double duration = time - trip.startTime;
+        SimulationListener.TripSummary summary = new SimulationListener.TripSummary(trip.id,
+                car.distance() - trip.startDistance, duration, (car.energyUsedJoules() - trip.startEnergy) / 3.6e6,
+                duration > 0 ? Math.min(1, trip.autopilotSeconds / duration) : 0, outcome);
+        trip = null;
+        for (SimulationListener l : listeners) {
+            l.tripEnded(summary);
+        }
+    }
+
+    /** A trip ends as cancelled whenever the route goes away without arriving. */
+    private void checkTripCancelled() {
+        if (trip != null && tracker == null) {
+            endTrip(SimulationListener.Outcome.CANCELLED);
+        }
+    }
+
+    /** The nearest named place within 150 m, else the road the car is on. */
+    private String describeLocation() {
+        Place nearest = null;
+        double best = 150;
+        for (Place p : world.places()) {
+            double d = Math.hypot(p.location().x() - car.x(), p.location().y() - car.y());
+            if (d < best) {
+                best = d;
+                nearest = p;
+            }
+        }
+        if (nearest != null) {
+            return nearest.name();
+        }
+        return graph.locate(car.x(), car.y(), car.heading())
+                .map(l -> l.edge().roadName())
+                .filter(name -> name != null && !name.isBlank())
+                .orElse("Unnamed road");
+    }
+
     private void arrive() {
         String destination = tracker.route().destination();
         setMode(DriveMode.MANUAL);
         gearSelector.force(Gear.PARK);
         tracker = null;
+        endTrip(SimulationListener.Outcome.ARRIVED);
         alerts.publish(time, Alert.Severity.INFO, Alert.Category.NAVIGATION, "Arrived at " + destination,
                 "Navigation");
         notifyDriver("Arrived at " + destination + ". Car secured in Park");
@@ -633,6 +733,7 @@ public final class Simulation {
         }
         tracker = new RouteTracker(route.get());
         tracker.update(car.x(), car.y());
+        startTrip(route.get());
         notifyDriver(String.format("Route to %s: %.1f km, about %.0f min", place.name(),
                 route.get().length() / 1000, Math.ceil(route.get().estimatedSeconds() / 60)));
     }
@@ -709,6 +810,19 @@ public final class Simulation {
 
     public void acknowledgeAlert(long id) {
         alerts.acknowledge(id);
+        for (SimulationListener l : listeners) {
+            l.alertAcknowledged(id);
+        }
+    }
+
+    /** Follow distance to the vehicle ahead, s. */
+    public void setFollowTimeGap(double seconds) {
+        autopilot.setTimeGap(seconds);
+    }
+
+    /** Extra reaction time added before emergency braking, s. */
+    public void setEmergencyBrakingReaction(double seconds) {
+        safety.setReactionAllowance(seconds);
     }
 
     // ---- Commands: scenarios ----------------------------------------------------------------

@@ -64,6 +64,7 @@ final class NavigationPanel {
     private final Label maxSpeed = new Label();
     private final ToggleButton aeb = new ToggleButton("AEB");
     private final Button trafficButton = button("Traffic", "Other vehicles on the roads: off, light, normal or heavy (Y)");
+    private final HBox scenarios;
 
     NavigationPanel(List<Place> places, Actions actions) {
         root.getStyleClass().add("card");
@@ -139,8 +140,9 @@ final class NavigationPanel {
         style(aeb, "Automatic emergency braking on or off");
         aeb.setOnAction(e -> actions.setEmergencyBraking(aeb.isSelected()));
         trafficButton.setOnAction(e -> actions.cycleTraffic());
-        HBox scenarios = new HBox(6, scenariosLabel, pedestrian, stopped, slow, closed, reset);
+        scenarios = new HBox(6, scenariosLabel, pedestrian, stopped, slow, closed, reset);
         scenarios.setAlignment(Pos.CENTER_LEFT);
+        scenarios.managedProperty().bind(scenarios.visibleProperty());
         Label roadLabel = new Label("ROAD");
         roadLabel.getStyleClass().add("dock-group-label");
         HBox settings = new HBox(6, roadLabel, trafficButton, spacer(), aeb);
@@ -151,6 +153,10 @@ final class NavigationPanel {
 
     VBox node() {
         return root;
+    }
+
+    void setScenariosVisible(boolean visible) {
+        scenarios.setVisible(visible);
     }
 
     void update(SimulationSnapshot s) {

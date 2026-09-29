@@ -1,8 +1,9 @@
 package com.selfdriving.app;
 
-import java.util.Objects;
+import java.lang.System.Logger.Level;
 
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.input.KeyCode;
@@ -11,19 +12,26 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 
 import com.selfdriving.physics.VehicleParams;
+import com.selfdriving.service.ApplicationContext;
+import com.selfdriving.service.Session;
 import com.selfdriving.simulation.Simulation;
 import com.selfdriving.simulation.SimulationLoop;
+import com.selfdriving.ui.AppShell;
+import com.selfdriving.ui.common.Ui;
 import com.selfdriving.ui.driver.DriverScreen;
+import com.selfdriving.ui.login.LoginScreen;
 import com.selfdriving.world.World;
 
 /**
- * JavaFX application bootstrap: builds the world, starts the simulation thread and opens the
- * driver display.
+ * JavaFX application bootstrap: builds the world, starts the simulation thread, opens the
+ * database and shows the sign-in screen; after sign-in, the pages for the user's role.
  */
 public final class SelfDrivingApp extends Application {
 
     public static final String APP_NAME = "Self-Driving Car Control System";
-    public static final String VERSION = "0.2.0";
+    public static final String VERSION = "0.3.0";
+
+    private static final System.Logger LOG = System.getLogger(SelfDrivingApp.class.getName());
 
     /** Preferred window content size, in logical (scaled) pixels. */
     private static final double PREFERRED_WIDTH = 1600;
@@ -39,14 +47,25 @@ public final class SelfDrivingApp extends Application {
 
     private SimulationLoop loop;
     private DriverScreen screen;
+    private ApplicationContext context;
+    private LoginScreen login;
+    private AppShell shell;
+    private Scene scene;
 
     @Override
     public void start(Stage stage) {
         World world = new World();
         Simulation simulation = new Simulation(VehicleParams.electricSedan(), world);
-        simulation.setTrafficCount(Integer.getInteger("selfdrive.traffic", 160));
+        try {
+            context = ApplicationContext.open(simulation);
+        } catch (RuntimeException e) {
+            LOG.log(Level.ERROR, "Cannot open the database", e);
+            showStartupError(stage, e);
+            return;
+        }
         loop = new SimulationLoop(simulation);
         screen = new DriverScreen(simulation, world);
+        login = new LoginScreen(context, APP_NAME, VERSION, this::signedIn);
 
         // Visual bounds = the screen minus the taskbar, in the same scaled pixels JavaFX uses,
         // so Windows display scaling (125 %, 150 %...) is already taken into account.
@@ -56,10 +75,8 @@ public final class SelfDrivingApp extends Application {
         double width = fits ? PREFERRED_WIDTH : desktop.getWidth() - FRAME_WIDTH;
         double height = fits ? PREFERRED_HEIGHT : desktop.getHeight() - FRAME_HEIGHT;
 
-        Scene scene = new Scene(screen.node(), width, height);
-        scene.getStylesheets().add(
-                Objects.requireNonNull(getClass().getResource("/com/selfdriving/ui/theme.css"),
-                        "theme.css missing from resources").toExternalForm());
+        scene = new Scene(login.node(), width, height);
+        scene.getStylesheets().add(Ui.THEME);
         screen.install(scene);
         scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             if (event.getCode() == KeyCode.F11) {
@@ -83,18 +100,61 @@ public final class SelfDrivingApp extends Application {
 
         loop.start();
         screen.start();
+        login.reset(null);
         if (DevAutomation.isEnabled()) {
-            DevAutomation.run(scene, simulation, screen);
+            DevAutomation.run(scene, simulation, screen, this);
         }
+    }
+
+    private void signedIn(Session session) {
+        shell = new AppShell(context, session, screen, this::signOut);
+        scene.setRoot(shell.node());
+    }
+
+    void signOut() {
+        if (shell != null) {
+            shell.dispose();
+            shell = null;
+        }
+        context.logout();
+        scene.setRoot(login.node());
+        login.reset("Signed out");
+    }
+
+    // ---- For developer scripts --------------------------------------------------------------
+
+    LoginScreen login() {
+        return login;
+    }
+
+    AppShell shell() {
+        return shell;
+    }
+
+    private static void showStartupError(Stage stage, RuntimeException e) {
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.ERROR,
+                "The database could not be opened: " + e.getMessage()
+                        + "\n\nIs the app already running? Only one copy can use the data folder at a time.");
+        alert.setTitle(APP_NAME);
+        alert.setHeaderText("Cannot start");
+        alert.showAndWait();
+        Platform.exit();
     }
 
     @Override
     public void stop() {
+        if (shell != null) {
+            shell.dispose();
+            context.logout();
+        }
         if (screen != null) {
             screen.stop();
         }
         if (loop != null) {
             loop.stop();
+        }
+        if (context != null) {
+            context.close();
         }
     }
 }

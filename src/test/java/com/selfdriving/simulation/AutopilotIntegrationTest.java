@@ -111,6 +111,19 @@ class AutopilotIntegrationTest {
     @DisplayName("Autopilot drives from the proving ground into the city and parks at the kerb")
     void drivesToDestination() {
         sim = new Simulation(VehicleParams.electricSedan(), WORLD, WORLD.provingGroundStart());
+        java.util.List<String> started = new java.util.ArrayList<>();
+        java.util.List<SimulationListener.TripSummary> ended = new java.util.ArrayList<>();
+        sim.addListener(new SimulationListener() {
+            @Override
+            public void tripStarted(long tripId, String origin, String destination, double plannedM, double etaS) {
+                started.add(origin + " -> " + destination);
+            }
+
+            @Override
+            public void tripEnded(TripSummary summary) {
+                ended.add(summary);
+            }
+        });
         Place place = middlePlace();
         startAutopilotTo(place);
         double length = sim.latest().navigation().route().length();
@@ -143,6 +156,18 @@ class AutopilotIntegrationTest {
         Point2 stop = kerb.link().lane(0).pointAt(kerb.arc());
         double distance = Math.hypot(s.vehicle().x() - stop.x(), s.vehicle().y() - stop.y());
         assertTrue(distance < 8, "stopped " + distance + " m from the kerb stop");
+
+        // The trip is reported for saving: from the proving ground, arrived, nearly all on autopilot.
+        assertEquals(1, started.size());
+        assertTrue(started.get(0).endsWith(" -> " + place.name()), started.get(0));
+        assertEquals(1, ended.size());
+        SimulationListener.TripSummary trip = ended.get(0);
+        System.out.printf("TRIP %s: %.0f m in %.0f s, %.3f kWh, %.0f %% autopilot%n", started.get(0),
+                trip.drivenMetres(), trip.durationSeconds(), trip.energyKwh(), trip.autopilotShare() * 100);
+        assertEquals(SimulationListener.Outcome.ARRIVED, trip.outcome());
+        assertEquals(length, trip.drivenMetres(), length * 0.1, "driven about the route length");
+        assertTrue(trip.autopilotShare() > 0.95, "autopilot share " + trip.autopilotShare());
+        assertTrue(trip.energyKwh() > 0.05, "energy " + trip.energyKwh());
     }
 
     @Test

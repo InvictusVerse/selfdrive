@@ -68,6 +68,21 @@ class SafetyControllerTest {
     }
 
     @Test
+    @DisplayName("A larger reaction allowance (setting) starts emergency braking earlier; values are clamped")
+    void reactionAllowance() {
+        // 20 m/s, about 31 m to impact: the default 0.25 s allowance needs 30.5 m, 0.5 s needs 35.5 m.
+        assertFalse(assess(new SafetyController(), 20, List.of(stoppedCar(36, 0))).emergencyBraking());
+        SafetyController cautious = new SafetyController();
+        cautious.setReactionAllowance(0.5);
+        assertTrue(assess(cautious, 20, List.of(stoppedCar(36, 0))).emergencyBraking());
+
+        cautious.setReactionAllowance(5);
+        assertEquals(0.8, cautious.reactionAllowance(), 1e-9);
+        cautious.setReactionAllowance(0);
+        assertEquals(0.1, cautious.reactionAllowance(), 1e-9);
+    }
+
+    @Test
     @DisplayName("PID: proportional, integral and derivative terms")
     void pid() {
         PidController pid = new PidController(2, 1, 0.5, 10);

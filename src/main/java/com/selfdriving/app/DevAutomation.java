@@ -41,7 +41,9 @@ import com.selfdriving.vehicle.Lights;
  * {@code scenario} (pedestrian/stopped/closed/clear), {@code lidar} (0/1),
  * {@code speed} (time scale, e.g. 4), {@code indicator} (LEFT/RIGHT), {@code hazard},
  * {@code headlights} (OFF/AUTO/ON), {@code mainbeam}, {@code traffic} (number of vehicles), {@code clock} (e.g. 21.30),
- * {@code fps} (seconds to measure the frame rate), {@code shot} (PNG path), {@code exit}. (The step separator ':' means clock times use '.'.)
+ * {@code fps} (seconds to measure the frame rate), {@code shot} (PNG path), {@code exit},
+ * {@code login} (user/password), {@code logout}, {@code page} (drive, trips, users, ...).
+ * Sign in first: the driver display only takes input once the Drive page is open. (The step separator ':' means clock times use '.'.)
  */
 final class DevAutomation {
 
@@ -57,7 +59,7 @@ final class DevAutomation {
         return script != null && !script.isBlank();
     }
 
-    static void run(Scene scene, Simulation simulation, DriverScreen screen) {
+    static void run(Scene scene, Simulation simulation, DriverScreen screen, SelfDrivingApp app) {
         Timeline timeline = new Timeline();
         for (String step : System.getProperty(PROPERTY).split(";")) {
             String[] parts = step.trim().split(":", 3);
@@ -68,16 +70,26 @@ final class DevAutomation {
             String action = parts[1].toLowerCase(Locale.ROOT);
             String value = parts.length > 2 ? parts[2] : "";
             timeline.getKeyFrames().add(new KeyFrame(Duration.seconds(at),
-                    e -> perform(action, value, scene, simulation, screen)));
+                    e -> perform(action, value, scene, simulation, screen, app)));
         }
         timeline.play();
     }
 
     private static void perform(String action, String value, Scene scene, Simulation simulation,
-                                DriverScreen screen) {
+                                DriverScreen screen, SelfDrivingApp app) {
         DriverInput input = simulation.driverInput();
         boolean on = "1".equals(value);
         switch (action) {
+            case "login" -> {
+                String[] up = value.split("/", 2);
+                app.login().signIn(up[0], up.length > 1 ? up[1] : "");
+            }
+            case "logout" -> app.signOut();
+            case "page" -> {
+                if (app.shell() == null || !app.shell().show(value.toLowerCase(Locale.ROOT))) {
+                    LOG.log(Level.WARNING, "Page not available: {0}", value);
+                }
+            }
             case "throttle" -> input.setAccelerate(on);
             case "brake" -> input.setBrake(on);
             case "fullbrake" -> input.setFullBrake(on);

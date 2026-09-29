@@ -34,7 +34,8 @@ public final class Autopilot {
     private static final double LANE_HALF_WIDTH = 1.9;
     private static final double FOLLOW_DECEL = 2.5;
     private static final double MIN_GAP = 4.0;
-    private static final double TIME_GAP = 1.2;
+    /** Default time gap to the vehicle ahead, s (adjustable in the settings). */
+    public static final double DEFAULT_TIME_GAP = 1.2;
     private static final double STEER_RATE = Math.toRadians(60);
     /** Where the front bumper stops before a stop line, m. */
     private static final double STOP_LINE_GAP = 0.8;
@@ -49,6 +50,16 @@ public final class Autopilot {
     private final SpeedController speedController;
     private final PurePursuit pursuit;
     private double steer;
+    private double timeGap = DEFAULT_TIME_GAP;
+
+    /** Time gap kept to the vehicle ahead (plus a fixed 4 m), clamped to 0.8-3 s. */
+    public void setTimeGap(double seconds) {
+        timeGap = Math.max(0.8, Math.min(3.0, seconds));
+    }
+
+    public double timeGap() {
+        return timeGap;
+    }
 
     public Autopilot(VehicleParams params) {
         this.params = params;
@@ -116,7 +127,7 @@ public final class Autopilot {
         }
         double accelLimit = Double.POSITIVE_INFINITY;
         if (leadId >= 0) {
-            double wantedGap = MIN_GAP + TIME_GAP * leadSpeed;
+            double wantedGap = MIN_GAP + timeGap * leadSpeed;
             double room = bestGap - wantedGap;
             double safe = room > 0 ? Math.sqrt(leadSpeed * leadSpeed + 2 * FOLLOW_DECEL * room) : Math.min(leadSpeed, 0.0);
             if (v > leadSpeed) {

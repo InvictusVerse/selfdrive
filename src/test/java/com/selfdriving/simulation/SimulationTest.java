@@ -5,10 +5,15 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.selfdriving.alerts.Alert;
 import com.selfdriving.physics.Gear;
+import com.selfdriving.world.Place;
 import com.selfdriving.physics.VehicleParams;
 import com.selfdriving.world.Pose;
 import com.selfdriving.world.World;
@@ -117,5 +122,50 @@ class SimulationTest {
         run(0.1);
         assertEquals(0, sim.latest().vehicle().x(), 1e-6);
         assertEquals(Gear.PARK, sim.latest().vehicle().gear());
+    }
+
+    @Test
+    @DisplayName("Trips: a new destination or a cancelled route ends the trip as cancelled; alerts are reported")
+    void tripAndAlertEvents() {
+        Simulation city = new Simulation(VehicleParams.electricSedan(), WORLD);
+        List<String> events = new ArrayList<>();
+        city.addListener(new SimulationListener() {
+            @Override
+            public void tripStarted(long tripId, String origin, String destination, double plannedM, double etaS) {
+                assertTrue(plannedM > 0 && etaS > 0);
+                events.add("start " + tripId + " " + destination);
+            }
+
+            @Override
+            public void tripEnded(TripSummary summary) {
+                events.add("end " + summary.tripId() + " " + summary.outcome());
+            }
+
+            @Override
+            public void alertRaised(Alert alert) {
+                events.add("alert " + alert.category());
+            }
+
+            @Override
+            public void alertAcknowledged(long alertId) {
+                events.add("ack " + alertId);
+            }
+        });
+        List<Place> places = WORLD.places().stream()
+                .filter(p -> !p.name().toLowerCase().contains("proving ground")).toList();
+        city.submit(s -> s.setDestination(places.get(0)));
+        city.processCommands();
+        city.submit(s -> s.setDestination(places.get(1)));
+        city.processCommands();
+        city.submit(Simulation::clearRoute);
+        city.processCommands();
+        city.raiseAlert(Alert.Severity.WARNING, Alert.Category.SECURITY, "Repeated failed logins", "Login");
+        city.processCommands();
+        long id = city.latest().alerts().get(0).id();
+        city.submit(s -> s.acknowledgeAlert(id));
+        city.processCommands();
+
+        assertEquals(List.of("start 1 " + places.get(0).name(), "end 1 CANCELLED", "start 2 " + places.get(1).name(),
+                "end 2 CANCELLED", "alert SECURITY", "ack " + id), events);
     }
 }

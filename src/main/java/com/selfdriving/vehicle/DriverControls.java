@@ -20,6 +20,7 @@ public final class DriverControls {
     private static final double STEER_RATE = 1.8;
     private static final double STEER_REVERSE_RATE = 3.5;
     private static final double STEER_CENTRE_RATE = 2.5;
+    private static final double TOUCH_STEER_RATE = 6.0;
 
     /** Lateral acceleration the speed-sensitive steering is sized for, m/s^2. */
     private static final double STEER_LATERAL_LIMIT = 12.0;
@@ -47,11 +48,14 @@ public final class DriverControls {
         double brakeRise = input.fullBrake() ? FULL_BRAKE_RISE : BRAKE_RISE;
         brake = approach(brake, brakeTarget, brakeRise, BRAKE_FALL, dt);
 
-        double steerTarget = (input.steerLeft() ? 1 : 0) - (input.steerRight() ? 1 : 0);
-        if (steerTarget == 0) {
+        double steerTarget = input.steerTarget();
+        if (input.isTouchSteering()) {
+            // The on-screen wheel follows the finger quickly, like a real wheel in the hands.
+            steer = moveTowards(steer, steerTarget, TOUCH_STEER_RATE * dt);
+        } else if (steerTarget == 0) {
             steer = moveTowards(steer, 0, STEER_CENTRE_RATE * dt);
         } else {
-            boolean reversing = Math.signum(steer) != 0 && Math.signum(steer) != steerTarget;
+            boolean reversing = Math.signum(steer) != 0 && Math.signum(steer) != Math.signum(steerTarget);
             steer = moveTowards(steer, steerTarget, (reversing ? STEER_REVERSE_RATE : STEER_RATE) * dt);
         }
     }

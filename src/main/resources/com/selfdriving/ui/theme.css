@@ -74,14 +74,46 @@
 }
 
 .gear-letter {
-    -fx-font-size: 18px;
+    -fx-font-size: 20px;
     -fx-font-weight: bold;
     -fx-text-fill: #4a4f57;
-    -fx-min-width: 22px;
+    -fx-min-width: 34px;
+    -fx-min-height: 34px;
     -fx-alignment: center;
+    -fx-cursor: hand;
 }
 
 .gear-letter.active {
+    -fx-text-fill: -sd-text;
+}
+
+.gear-letter:hover {
+    -fx-background-color: rgba(62, 106, 225, 0.25);
+    -fx-background-radius: 8;
+}
+
+/* ---- On-screen pedals ------------------------------------------------------------------ */
+
+.pedal {
+    -fx-background-color: rgba(21, 23, 27, 0.78);
+    -fx-background-radius: 14;
+    -fx-border-color: #3a3f47;
+    -fx-border-width: 2;
+    -fx-border-radius: 14;
+}
+
+.pedal.pressed {
+    -fx-border-color: -sd-accent;
+}
+
+.pedal-fill {
+    -fx-background-color: rgba(62, 106, 225, 0.55);
+    -fx-background-radius: 0 0 12 12;
+}
+
+.pedal-label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
     -fx-text-fill: -sd-text;
 }
 

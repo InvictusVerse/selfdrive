@@ -125,8 +125,23 @@ public final class Simulation {
 
     // ---- Commands (run via submit) ------------------------------------------------------
 
+    /** Gear request from the keyboard: all rules apply, including "brake to leave Park". */
     public void requestGear(Gear gear) {
         GearSelector.Result result = gearSelector.request(gear, car.forwardSpeed(), controls.brake());
+        if (!result.accepted()) {
+            notifyDriver(result.message());
+        }
+    }
+
+    /**
+     * Gear request from a tap on the screen. A single mouse or finger cannot hold the brake and
+     * tap at the same time, so while the car is stopped the car holds itself on the brake for
+     * the shift, as touchscreen drive selectors do. Every other rule still applies.
+     */
+    public void requestGearFromScreen(Gear gear) {
+        boolean stopped = Math.abs(car.forwardSpeed()) < GearSelector.PARK_MAX_SPEED;
+        double brake = stopped ? 1.0 : controls.brake();
+        GearSelector.Result result = gearSelector.request(gear, car.forwardSpeed(), brake);
         if (!result.accepted()) {
             notifyDriver(result.message());
         }

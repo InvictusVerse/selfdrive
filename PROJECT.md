@@ -381,6 +381,11 @@ The schema is created by versioned SQL scripts in `src/main/resources/db/` that 
   | Dock (bottom) | P R N D · Dry / Wet / Snow / Ice · ABS · TCS · View · Forces · Slow-mo · Pause · Reset · Keys |
 
 - **Keyboard:** W/↑ accelerate · S/↓ brake · A D/← → steer · Space full brake · 1–4 = P R N D · G surface · B ABS · T TCS · C camera · F forces · M slow motion · P pause · Backspace reset · H help · F11 full screen. Dock buttons never take keyboard focus, so driving keys always reach the car; every button also has a shortcut and a tooltip. If the window loses focus, all keys are released so the car doesn't keep accelerating.
+- **Touchscreen and mouse** (`TouchControls`, toggle with O or the Touch button):
+  - An on-screen steering wheel: drag left or right, and it centres itself when released.
+  - BRAKE and ACCEL pedals: press and hold. The fill bar shows the real pedal position, whether it comes from the screen or the keyboard.
+  - Tappable P R N D, both on the display and in the bottom bar. A tap shifts directly while the car is stopped, because one finger or mouse can't hold the brake and tap at the same time. The car holds itself on the brake, as touchscreen drive selectors do. Keyboard shifts still need the brake held.
+  - Each control tracks its own touch point, so one finger can steer while another presses a pedal. Keyboard and screen inputs are separate sources, so releasing a key never releases an on-screen pedal.
 - **Road tests run automatically** (`PerformanceMonitor`). Pressing the brake fully above 18 km/h starts a braking test that ends when the car stops, and shows *measured vs v²/(2(μ+C<sub>rr</sub>)g)*. Pulling away from a stop at full throttle in Drive times 0–100 km/h. Lifting off or braking cancels the run.
 - **3D models generated in code** (`CarModel`, `WorldModel`, `MeshFactory`):
   - The car body is *lofted*: 44 rounded-box cross-sections whose height and width follow smooth side and plan profiles (monotone cubic curves, so no bumps). A dark glass cabin is lofted the same way.

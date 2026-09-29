@@ -39,6 +39,8 @@ final class ControlDock {
 
         void setForces(boolean visible);
 
+        void setTouchControls(boolean visible);
+
         void setSlowMotion(boolean slow);
 
         void setPaused(boolean paused);
@@ -60,6 +62,7 @@ final class ControlDock {
     private final ToggleButton tcs = toggle("TCS", "Traction control (T)");
     private final Button camera = button("View", "Change camera (C)");
     private final ToggleButton forces = toggle("Forces", "Show tyre force arrows (F)");
+    private final ToggleButton touch = toggle("Touch", "On-screen steering wheel and pedals (O)");
     private final ToggleButton slow = toggle("Slow-mo", "Quarter-speed simulation (M)");
     private final ToggleButton pause = toggle("Pause", "Pause the simulation (P)");
 
@@ -90,7 +93,8 @@ final class ControlDock {
 
         camera.setOnAction(e -> actions.cycleCamera());
         forces.setOnAction(e -> actions.setForces(forces.isSelected()));
-        root.getChildren().addAll(separator(), groupLabel("VIEW"), camera, forces);
+        touch.setOnAction(e -> actions.setTouchControls(touch.isSelected()));
+        root.getChildren().addAll(separator(), groupLabel("VIEW"), camera, forces, touch);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -108,7 +112,9 @@ final class ControlDock {
     }
 
     /** Mirrors the simulation state in the buttons. */
-    void update(SimulationSnapshot snapshot, CameraRig.Mode cameraMode, boolean forcesVisible) {
+    void update(SimulationSnapshot snapshot, CameraRig.Mode cameraMode, boolean forcesVisible,
+                boolean touchVisible) {
+        touch.setSelected(touchVisible);
         VehicleState s = snapshot.vehicle();
         gearButtons.forEach((gear, b) -> b.setSelected(gear == s.gear()));
         surfaceButtons.forEach((surface, b) -> b.setSelected(surface == s.surface()));

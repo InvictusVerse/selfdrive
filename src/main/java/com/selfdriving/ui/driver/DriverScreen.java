@@ -40,7 +40,8 @@ public final class DriverScreen implements ControlDock.Actions {
     private final DriverInput input;
     private final BorderPane root = new BorderPane();
     private final DrivingView drivingView;
-    private final HudOverlay hud = new HudOverlay();
+    private final HudOverlay hud = new HudOverlay(this::selectGear);
+    private final TouchControls touch;
     private final Toast toast = new Toast();
     private final HelpOverlay help = new HelpOverlay();
     private final MapView map;
@@ -56,8 +57,10 @@ public final class DriverScreen implements ControlDock.Actions {
         this.input = simulation.driverInput();
         this.drivingView = new DrivingView(ground, simulation.params());
         this.map = new MapView(ground);
+        this.touch = new TouchControls(input);
 
-        StackPane viewStack = new StackPane(drivingView.node(), hud.node(), toast.node(), help.node());
+        StackPane viewStack = new StackPane(drivingView.node(), touch.node(), hud.node(), toast.node(),
+                help.node());
         viewStack.setMinSize(0, 0);
         HBox.setHgrow(viewStack, Priority.ALWAYS);
 
@@ -127,11 +130,12 @@ public final class DriverScreen implements ControlDock.Actions {
         drivingView.update(snapshot.vehicle(), dt);
         CameraRig.Mode mode = drivingView.cameraRig().mode();
         hud.update(snapshot, mode);
+        touch.update(snapshot.vehicle());
         map.draw(snapshot.vehicle());
         frictionCircle.draw(snapshot.vehicle());
         tyres.draw(snapshot.vehicle());
         energy.update(snapshot);
-        dock.update(snapshot, mode, drivingView.car().forcesVisible());
+        dock.update(snapshot, mode, drivingView.car().forcesVisible(), touch.isVisible());
 
         String message;
         while ((message = simulation.pollNotification()) != null) {
@@ -155,10 +159,11 @@ public final class DriverScreen implements ControlDock.Actions {
         }
         boolean handled = true;
         switch (code) {
-            case DIGIT1, NUMPAD1 -> selectGear(Gear.PARK);
-            case DIGIT2, NUMPAD2 -> selectGear(Gear.REVERSE);
-            case DIGIT3, NUMPAD3 -> selectGear(Gear.NEUTRAL);
-            case DIGIT4, NUMPAD4 -> selectGear(Gear.DRIVE);
+            case DIGIT1, NUMPAD1 -> selectGearByKey(Gear.PARK);
+            case DIGIT2, NUMPAD2 -> selectGearByKey(Gear.REVERSE);
+            case DIGIT3, NUMPAD3 -> selectGearByKey(Gear.NEUTRAL);
+            case DIGIT4, NUMPAD4 -> selectGearByKey(Gear.DRIVE);
+            case O -> setTouchControls(!touch.isVisible());
             case G -> cycleSurface();
             case B -> setAbs(!simulation.latest().vehicle().absEnabled());
             case T -> setTractionControl(!simulation.latest().vehicle().tractionEnabled());
@@ -205,9 +210,20 @@ public final class DriverScreen implements ControlDock.Actions {
 
     // ---- Actions (dock buttons and shortcuts) ------------------------------------------------
 
+    /** Keyboard shift: the brake must be held to leave Park, as in a real car. */
+    private void selectGearByKey(Gear gear) {
+        simulation.submit(sim -> sim.requestGear(gear));
+    }
+
+    /** Tap or click on a drive selector (bottom bar or the P R N D letters on the display). */
     @Override
     public void selectGear(Gear gear) {
-        simulation.submit(sim -> sim.requestGear(gear));
+        simulation.submit(sim -> sim.requestGearFromScreen(gear));
+    }
+
+    @Override
+    public void setTouchControls(boolean visible) {
+        touch.setVisible(visible);
     }
 
     @Override

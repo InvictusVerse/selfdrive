@@ -46,6 +46,33 @@ class SimulationTest {
     }
 
     @Test
+    @DisplayName("A tap on the screen shifts out of Park while stopped (the car holds the brake)")
+    void screenTapShiftsWhileStopped() {
+        sim.submit(s -> s.requestGearFromScreen(Gear.DRIVE));
+        run(0.1);
+        assertEquals(Gear.DRIVE, sim.latest().vehicle().gear());
+    }
+
+    @Test
+    @DisplayName("On-screen pedal and wheel drive the car; letting go of the wheel centres it")
+    void touchControlsDriveTheCar() {
+        sim.submit(s -> s.requestGearFromScreen(Gear.DRIVE));
+        sim.driverInput().setTouchAccelerate(true);
+        sim.driverInput().setTouchSteer(0.5);
+        run(3);
+        assertTrue(sim.latest().vehicle().speed() > 10);
+        assertEquals(0.5, sim.latest().vehicle().steerInput(), 1e-9);
+        assertTrue(sim.latest().vehicle().yawRate() > 0, "turning left");
+
+        // Releasing the keyboard must not release the on-screen pedal.
+        sim.driverInput().setAccelerate(false);
+        sim.driverInput().setTouchSteer(Double.NaN);
+        run(1);
+        assertEquals(0, sim.latest().vehicle().steerInput(), 1e-9);
+        assertTrue(sim.latest().vehicle().throttle() > 0.99);
+    }
+
+    @Test
     @DisplayName("Holding the accelerator in Drive accelerates the car and times 0-100 km/h")
     void accelerateAndTime() {
         shiftToDrive();

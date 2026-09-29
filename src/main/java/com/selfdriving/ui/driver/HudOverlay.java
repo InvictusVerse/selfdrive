@@ -31,26 +31,34 @@ final class HudOverlay {
     private final Label timer = new Label();
     private final Label cameraLabel = new Label();
 
-    HudOverlay() {
+    /** @param onGearTapped called when the driver taps a letter of the drive selector */
+    HudOverlay(java.util.function.Consumer<Gear> onGearTapped) {
         Label unit = new Label("km/h");
         unit.getStyleClass().add("hud-unit");
         speed.getStyleClass().add("hud-speed");
         speed.setAccessibleText("Speed");
         HBox speedRow = new HBox(8, speed, unit);
         speedRow.setAlignment(Pos.BASELINE_LEFT);
+        speedRow.setMouseTransparent(true);
 
-        HBox gears = new HBox(4);
+        HBox gears = new HBox(2);
+        gears.setPickOnBounds(false);
         for (Gear gear : Gear.values()) {
             Label letter = new Label(gear.letter());
             letter.getStyleClass().add("gear-letter");
+            letter.setAccessibleRole(javafx.scene.AccessibleRole.BUTTON);
+            letter.setAccessibleText("Select " + gear.name().toLowerCase(java.util.Locale.ROOT));
+            letter.setOnMouseClicked(e -> onGearTapped.accept(gear));
             gearLetters.put(gear, letter);
             gears.getChildren().add(letter);
         }
         battery.getStyleClass().add("hud-battery");
+        battery.setMouseTransparent(true);
 
         VBox left = new VBox(2, speedRow, gears, battery);
         left.getStyleClass().add("hud");
         left.setMaxWidth(VBox.USE_PREF_SIZE);
+        left.setPickOnBounds(false);
 
         Label mode = new Label("MANUAL");
         mode.getStyleClass().add("mode-chip");
@@ -63,12 +71,15 @@ final class HudOverlay {
         right.setAlignment(Pos.TOP_RIGHT);
         right.setPadding(new Insets(22, 22, 0, 0));
 
+        right.setMouseTransparent(true);
         HBox top = new HBox(left, spacer(), right);
+        top.setPickOnBounds(false);
         cameraLabel.getStyleClass().add("camera-label");
+        cameraLabel.setMouseTransparent(true);
 
         root.setTop(top);
         root.setBottom(cameraLabel);
-        root.setMouseTransparent(true);
+        // Only the drive selector letters take clicks; everything else lets them through.
         root.setPickOnBounds(false);
     }
 

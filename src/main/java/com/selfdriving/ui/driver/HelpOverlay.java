@@ -20,6 +20,7 @@ final class HelpOverlay {
             {"F", "Show tyre force arrows"},
             {"M  /  P", "Slow motion  /  pause"},
             {"Backspace", "Reset to the start line"},
+            {"O", "On-screen wheel and pedals on or off"},
             {"F11", "Full screen on or off"},
             {"H", "Show or hide this panel"},
     };
@@ -39,7 +40,8 @@ final class HelpOverlay {
             grid.add(key, 0, i + 1);
             grid.add(action, 1, i + 1);
         }
-        Label hint = new Label("To drive off: hold S, press 4 (Drive), then W.");
+        Label hint = new Label("To drive off: hold S, press 4 (Drive), then W.  "
+                + "Or tap D on the screen and hold ACCEL; drag the wheel to steer.");
         hint.getStyleClass().add("muted");
         grid.add(hint, 0, KEYS.length + 1, 2, 1);
         grid.setMaxSize(GridPane.USE_PREF_SIZE, GridPane.USE_PREF_SIZE);

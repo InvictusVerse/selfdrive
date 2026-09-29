@@ -9,6 +9,7 @@ import java.util.Random;
 import java.util.Set;
 
 import com.selfdriving.world.Obstacle;
+import com.selfdriving.world.Walls;
 
 /**
  * All of the car's sensors, and a simple perception step that turns their raw returns into
@@ -54,9 +55,11 @@ public final class SensorSuite {
      * @param heading   car heading, rad
      * @param vx        car velocity east (world), m/s
      * @param vy        car velocity north (world), m/s
-     * @param obstacles everything in the world
+     * @param obstacles moving and temporary objects
+     * @param walls     building walls (or null)
      */
-    public SensorReadings scan(double x, double y, double heading, double vx, double vy, List<Obstacle> obstacles) {
+    public SensorReadings scan(double x, double y, double heading, double vx, double vy, List<Obstacle> obstacles,
+                               Walls walls) {
         double c = Math.cos(heading);
         double s = Math.sin(heading);
 
@@ -64,7 +67,7 @@ public final class SensorSuite {
         float[] ranges;
         if (lidarWorking) {
             int[] hits = new int[Lidar.RAYS];
-            ranges = lidar.scan(x, y, heading, obstacles, hits);
+            ranges = lidar.scan(x, y, heading, obstacles, walls, hits);
             for (int id : hits) {
                 if (id >= 0) {
                     seen.add(id);
@@ -77,7 +80,7 @@ public final class SensorSuite {
 
         SensorReadings.RadarTarget target = null;
         if (radarWorking) {
-            target = radar.scan(x + c * RADAR_MOUNT, y + s * RADAR_MOUNT, heading, vx, vy, obstacles);
+            target = radar.scan(x + c * RADAR_MOUNT, y + s * RADAR_MOUNT, heading, vx, vy, obstacles, walls);
             if (target != null) {
                 seen.add(target.obstacleId());
             }
@@ -94,7 +97,7 @@ public final class SensorSuite {
             double ox = x + c * m[0] - s * m[1];
             double oy = y + s * m[0] + c * m[1];
             double a = heading + m[2];
-            RayCaster.Hit hit = RayCaster.cast(ox, oy, Math.cos(a), Math.sin(a), ULTRASONIC_RANGE, near);
+            RayCaster.Hit hit = RayCaster.cast(ox, oy, Math.cos(a), Math.sin(a), ULTRASONIC_RANGE, near, walls);
             ultrasonic[i] = hit == null ? Float.NaN : (float) hit.distance();
         }
 

@@ -59,7 +59,7 @@ public final class ProvingGround {
             addTransverse(x, major ? 0.4 : 0.2);
         }
 
-        start = new Pose(START_LINE_X - 30, circuitRightLaneOffset(), 0);
+        start = new Pose(START_LINE_X - 30, circuitLeftLaneOffset(), 0);
     }
 
     /** Stadium-shaped loop driven anticlockwise: east along the main straight (y = 0). */
@@ -149,9 +149,9 @@ public final class ProvingGround {
         return new Polyline(points, false);
     }
 
-    /** Offset of the right-hand lane's centre from the circuit centre line (negative = right), m. */
-    public double circuitRightLaneOffset() {
-        return -CIRCUIT_WIDTH / 2 + CIRCUIT_WIDTH / CIRCUIT_LANES / 2;
+    /** Offset of the left-hand (keep-left) lane's centre from the circuit centre line, m. */
+    public double circuitLeftLaneOffset() {
+        return CIRCUIT_WIDTH / 2 - CIRCUIT_WIDTH / CIRCUIT_LANES / 2;
     }
 
     /** Circuit width, m. */
@@ -159,7 +159,7 @@ public final class ProvingGround {
         return CIRCUIT_WIDTH;
     }
 
-    /** Where the car starts: right-hand lane of the main straight, facing east. */
+    /** Start line position: left-hand lane of the main straight, facing east. */
     public Pose start() {
         return start;
     }

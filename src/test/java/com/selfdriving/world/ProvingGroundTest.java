@@ -41,10 +41,10 @@ class ProvingGroundTest {
     }
 
     @Test
-    @DisplayName("The car starts in the right-hand lane of the main straight, facing east")
+    @DisplayName("The start line is in the left-hand lane of the main straight, facing east (keep left)")
     void startPose() {
         Pose start = new ProvingGround().start();
         assertEquals(0, start.heading());
-        assertTrue(start.y() < 0 && start.y() > -5.5);
+        assertTrue(start.y() > 0 && start.y() < 5.5);
     }
 }

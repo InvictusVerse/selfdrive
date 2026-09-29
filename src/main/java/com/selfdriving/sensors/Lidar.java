@@ -3,6 +3,7 @@ package com.selfdriving.sensors;
 import java.util.List;
 
 import com.selfdriving.world.Obstacle;
+import com.selfdriving.world.Walls;
 
 /**
  * Roof-mounted 360-degree lidar: one ray every 0.5 degrees, 100 m range, small range noise.
@@ -34,18 +35,18 @@ public final class Lidar {
      * @param hitIds receives the id of the obstacle each ray hit (-1 for none)
      * @return range per ray (NaN = nothing within range)
      */
-    public float[] scan(double x, double y, double heading, List<Obstacle> obstacles, int[] hitIds) {
+    public float[] scan(double x, double y, double heading, List<Obstacle> obstacles, Walls walls, int[] hitIds) {
         List<Obstacle> candidates = RayCaster.candidates(x, y, RANGE, obstacles);
         float[] ranges = new float[RAYS];
         for (int i = 0; i < RAYS; i++) {
             double a = heading + angles[i];
-            RayCaster.Hit hit = RayCaster.cast(x, y, Math.cos(a), Math.sin(a), RANGE, candidates);
+            RayCaster.Hit hit = RayCaster.cast(x, y, Math.cos(a), Math.sin(a), RANGE, candidates, walls);
             if (hit == null) {
                 ranges[i] = Float.NaN;
                 hitIds[i] = -1;
             } else {
                 ranges[i] = (float) Math.max(0, hit.distance() + noise.nextGaussian() * NOISE);
-                hitIds[i] = hit.obstacle().id();
+                hitIds[i] = hit.id();
             }
         }
         return ranges;

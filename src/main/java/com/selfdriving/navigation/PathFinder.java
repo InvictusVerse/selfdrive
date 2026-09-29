@@ -66,56 +66,93 @@ public abstract class PathFinder {
     public abstract String name();
 
     /**
-     * Finds the fastest route.
+     * Finds the fastest route to a junction (the end of any edge leading into it).
+     *
+     * @param goal destination junction
+     */
+    public Optional<Result> find(RoadGraph graph, RoadGraph.Edge start, double startArc, RoadGraph.Node goal,
+                                 Set<Integer> closed) {
+        return search(graph, start, startArc, -1, goal, closed);
+    }
+
+    /**
+     * Finds the fastest route to a point on an edge.
      *
      * @param graph     road network
      * @param start     edge the car is on
      * @param startArc  how far along that edge the car already is, m
-     * @param goal      destination junction
+     * @param goal      edge the destination is on
+     * @param goalArc   where on that edge, m
      * @param closed    ids of closed edges
      */
-    public Optional<Result> find(RoadGraph graph, RoadGraph.Edge start, double startArc, RoadGraph.Node goal,
-                                 Set<Integer> closed) {
-        record Entry(RoadGraph.Edge edge, double cost, double estimate) {
+    public Optional<Result> find(RoadGraph graph, RoadGraph.Edge start, double startArc, RoadGraph.Edge goal,
+                                 double goalArc, Set<Integer> closed) {
+        if (start.id() == goal.id() && goalArc >= startArc + 10) {
+            return Optional.of(new Result(List.of(start), (goalArc - startArc) / start.speedLimit(), 1));
+        }
+        return search(graph, start, startArc, goal.id(), goal.from(), closed);
+    }
+
+    /**
+     * Best-first search over edges. The start edge may be entered a second time (after a loop),
+     * which is how a destination just behind the car is reached; that second visit has its own key.
+     *
+     * @param goalEdge edge to reach (entered from its start), or -1 to stop at {@code goalNode}
+     */
+    private Optional<Result> search(RoadGraph graph, RoadGraph.Edge start, double startArc, int goalEdge,
+                                    RoadGraph.Node goalNode, Set<Integer> closed) {
+        record Entry(int key, RoadGraph.Edge edge, double cost, double estimate) {
         }
         double firstCost = Math.max(0, start.length() - startArc) / start.speedLimit();
         PriorityQueue<Entry> open = new PriorityQueue<>((a, b) -> Double.compare(a.estimate(), b.estimate()));
         Map<Integer, Double> best = new HashMap<>();
-        Map<Integer, RoadGraph.Edge> cameFrom = new HashMap<>();
+        Map<Integer, Integer> cameFrom = new HashMap<>();
 
-        open.add(new Entry(start, firstCost, firstCost + heuristic(graph, start.to(), goal)));
-        best.put(start.id(), firstCost);
+        int startKey = start.id();
+        open.add(new Entry(startKey, start, firstCost, firstCost + heuristic(graph, start.to(), goalNode)));
+        best.put(startKey, firstCost);
         int expanded = 0;
         while (!open.isEmpty()) {
             Entry current = open.poll();
-            if (current.cost() > best.getOrDefault(current.edge().id(), Double.MAX_VALUE) + 1e-9) {
+            if (current.cost() > best.getOrDefault(current.key(), Double.MAX_VALUE) + 1e-9) {
                 continue; // stale queue entry
             }
             expanded++;
-            if (current.edge().to().id() == goal.id()) {
-                return Optional.of(new Result(path(cameFrom, current.edge()), current.cost(), expanded));
+            boolean done = goalEdge >= 0
+                    ? current.edge().id() == goalEdge && current.key() != startKey
+                    : current.edge().to().id() == goalNode.id();
+            if (done) {
+                return Optional.of(new Result(path(graph, cameFrom, current.key(), startKey), current.cost(), expanded));
             }
-            for (RoadGraph.Edge next : graph.outgoing(current.edge().to())) {
-                if (next.id() == current.edge().reverseId() || closed.contains(next.id())) {
-                    continue; // no U-turns at junctions, no closed roads
+            for (RoadGraph.Edge next : graph.successors(current.edge())) {
+                if (closed.contains(next.id())) {
+                    continue; // closed roads (U-turns are never successors)
+                }
+                int key = next.id() == start.id() ? ~next.id() : next.id();
+                if (key < 0 && current.key() < 0) {
+                    continue;
                 }
                 double cost = current.cost() + next.travelTime();
-                if (cost < best.getOrDefault(next.id(), Double.MAX_VALUE)) {
-                    best.put(next.id(), cost);
-                    cameFrom.put(next.id(), current.edge());
-                    open.add(new Entry(next, cost, cost + heuristic(graph, next.to(), goal)));
+                if (cost < best.getOrDefault(key, Double.MAX_VALUE)) {
+                    best.put(key, cost);
+                    cameFrom.put(key, current.key());
+                    open.add(new Entry(key, next, cost, cost + heuristic(graph, next.to(), goalNode)));
                 }
             }
         }
         return Optional.empty();
     }
 
-    private static List<RoadGraph.Edge> path(Map<Integer, RoadGraph.Edge> cameFrom, RoadGraph.Edge last) {
+    private static List<RoadGraph.Edge> path(RoadGraph graph, Map<Integer, Integer> cameFrom, int lastKey,
+                                             int startKey) {
         List<RoadGraph.Edge> edges = new ArrayList<>();
-        RoadGraph.Edge edge = last;
-        while (edge != null) {
-            edges.add(edge);
-            edge = cameFrom.get(edge.id());
+        Integer key = lastKey;
+        while (key != null) {
+            edges.add(graph.edge(key < 0 ? ~key : key));
+            if (key == startKey) {
+                break;
+            }
+            key = cameFrom.get(key);
         }
         Collections.reverse(edges);
         return edges;

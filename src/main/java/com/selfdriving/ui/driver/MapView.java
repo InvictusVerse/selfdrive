@@ -18,12 +18,14 @@ import com.selfdriving.navigation.Route;
 import com.selfdriving.simulation.SimulationSnapshot;
 import com.selfdriving.ui.Palette;
 import com.selfdriving.vehicle.VehicleState;
+import com.selfdriving.world.Building;
 import com.selfdriving.world.Obstacle;
 import com.selfdriving.world.OrientedBox;
 import com.selfdriving.world.Place;
 import com.selfdriving.world.Point2;
 import com.selfdriving.world.Road;
 import com.selfdriving.world.World;
+import com.selfdriving.world.map.MapData;
 
 /**
  * Top-down map, north up, drawn from the same data as the 3D world (so it works offline).
@@ -93,15 +95,19 @@ final class MapView {
         }
         setView(s);
 
-        g.setFill(Color.web("#1a2620"));
-        for (double[] park : world.city().parks()) {
-            fillRect(g, park[0], park[1], park[2], park[3]);
+        for (MapData.Area area : world.areas()) {
+            g.setFill(area.kind().equals("water") ? Color.web("#15202b") : Color.web("#1a2620"));
+            fillPolygon(g, area.outline());
         }
         g.setFill(Color.web("#23272e"));
-        for (Obstacle b : world.buildings()) {
-            OrientedBox box = b.box();
-            fillRect(g, box.cx() - box.halfLength(), box.cy() - box.halfWidth(),
-                    box.cx() + box.halfLength(), box.cy() + box.halfWidth());
+        for (Building b : world.buildings()) {
+            Point2 c = b.footprint().get(0);
+            double px = sx(c.x());
+            double py = sy(c.y());
+            if (px < -200 || px > width + 200 || py < -200 || py > height + 200) {
+                continue;
+            }
+            fillPolygon(g, b.footprint());
         }
 
         g.setLineCap(StrokeLineCap.ROUND);
@@ -171,6 +177,10 @@ final class MapView {
         g.setFont(Font.font(12));
         g.fillText(overview ? "OVERVIEW  \u00B7  click to follow the car" : "MAP  \u00B7  click for overview", 16, 22);
         g.fillText("N \u2191", width - 34, 22);
+        g.setFont(Font.font(10));
+        g.setTextAlign(TextAlignment.RIGHT);
+        g.fillText("Map data \u00A9 OpenStreetMap contributors (ODbL)", width - 10, height - 10);
+        g.setTextAlign(TextAlignment.LEFT);
     }
 
     private void setView(VehicleState s) {
@@ -193,6 +203,16 @@ final class MapView {
 
     private double sy(double y) {
         return height / 2 - (y - originY) * scale;
+    }
+
+    private void fillPolygon(GraphicsContext g, List<Point2> outline) {
+        double[] xs = new double[outline.size()];
+        double[] ys = new double[outline.size()];
+        for (int i = 0; i < xs.length; i++) {
+            xs[i] = sx(outline.get(i).x());
+            ys[i] = sy(outline.get(i).y());
+        }
+        g.fillPolygon(xs, ys, xs.length);
     }
 
     private void fillRect(GraphicsContext g, double x0, double y0, double x1, double y1) {

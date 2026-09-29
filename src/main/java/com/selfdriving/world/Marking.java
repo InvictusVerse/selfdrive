@@ -14,7 +14,11 @@ public record Marking(Polyline line, double width, Kind kind) {
         EDGE,
         /** Dashed line between lanes. */
         LANE,
-        /** Line across the road (start line, distance markers). */
-        TRANSVERSE
+        /** Line across the road (start line, distance markers, stop lines). */
+        TRANSVERSE,
+        /** Yellow centre line of a main two-way road (no overtaking across it). */
+        CENTRE,
+        /** One stripe of a pedestrian (zebra) crossing. */
+        ZEBRA
     }
 }

@@ -3,6 +3,7 @@ package com.selfdriving.sensors;
 import java.util.List;
 
 import com.selfdriving.world.Obstacle;
+import com.selfdriving.world.Walls;
 
 /**
  * Forward radar in the front bumper: a narrow cone (plus or minus 8 degrees) out to 160 m.
@@ -24,7 +25,7 @@ public final class Radar {
      * @param obstacles objects to look for
      */
     public SensorReadings.RadarTarget scan(double x, double y, double heading, double carVx, double carVy,
-                                           List<Obstacle> obstacles) {
+                                           List<Obstacle> obstacles, Walls walls) {
         List<Obstacle> candidates = RayCaster.candidates(x, y, RANGE, obstacles);
         RayCaster.Hit nearest = null;
         double nearestDx = 0;
@@ -33,8 +34,11 @@ public final class Radar {
             double a = heading - HALF_ANGLE + 2 * HALF_ANGLE * i / (RAYS - 1);
             double dx = Math.cos(a);
             double dy = Math.sin(a);
-            RayCaster.Hit hit = RayCaster.cast(x, y, dx, dy, RANGE, candidates);
-            if (hit != null && (nearest == null || hit.distance() < nearest.distance())) {
+            RayCaster.Hit hit = RayCaster.cast(x, y, dx, dy, RANGE, candidates, walls);
+            if (hit == null || hit.obstacle() == null) {
+                continue; // walls hide what is behind them; fixed roadside clutter is filtered out
+            }
+            if (nearest == null || hit.distance() < nearest.distance()) {
                 nearest = hit;
                 nearestDx = dx;
                 nearestDy = dy;

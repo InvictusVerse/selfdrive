@@ -17,6 +17,8 @@ public final class PurePursuit {
     private static final double MIN_LOOKAHEAD = 4.0;
     private static final double MAX_LOOKAHEAD = 25.0;
     private static final double LOOKAHEAD_PER_SPEED = 0.55;
+    private static final double MIN_TURN_LOOKAHEAD = 3.0;
+    private static final double TURN_LOOKAHEAD_FACTOR = 0.9;
 
     private final double wheelbase;
     private final double cgToRear;
@@ -43,7 +45,16 @@ public final class PurePursuit {
     public double steer(Route route, double carArc, double x, double y, double heading, double speed) {
         double rearX = x - Math.cos(heading) * cgToRear;
         double rearY = y - Math.sin(heading) * cgToRear;
-        Point2 target = route.pointAt(carArc + lookahead(speed));
+        // Shorter look-ahead in tight turns: pure pursuit cuts corners by about Ld^2 * k / 2.
+        double ld = lookahead(speed);
+        double sharpest = 0;
+        for (double s = 0; s <= ld; s += 1.5) {
+            sharpest = Math.max(sharpest, route.curvatureAt(carArc + s));
+        }
+        if (sharpest > 1e-3) {
+            ld = Math.min(ld, Math.max(MIN_TURN_LOOKAHEAD, TURN_LOOKAHEAD_FACTOR / Math.sqrt(sharpest)));
+        }
+        Point2 target = route.pointAt(carArc + ld);
         double dx = target.x() - rearX;
         double dy = target.y() - rearY;
         double distance = Math.max(1.0, Math.hypot(dx, dy));

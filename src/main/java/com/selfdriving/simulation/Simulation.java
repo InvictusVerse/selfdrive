@@ -37,6 +37,7 @@ import com.selfdriving.world.Obstacle;
 import com.selfdriving.world.Place;
 import com.selfdriving.world.Point2;
 import com.selfdriving.world.Pose;
+import com.selfdriving.world.RoadNetwork;
 import com.selfdriving.world.World;
 
 /**
@@ -72,8 +73,6 @@ public final class Simulation {
     private static final int ALERTS_IN_SNAPSHOT = 12;
     /** The autopilot switches the indicator on this far before a turn, m. */
     private static final double INDICATE_BEFORE_TURN = 45;
-    /** Distance past the start of a turn manoeuvre until the car is through the junction, m. */
-    private static final double TURN_LENGTH = 20;
 
     private final VehicleParams params;
     private final World world;
@@ -202,7 +201,8 @@ public final class Simulation {
         List<Obstacle> obstacles = obstacles();
 
         if (tick % SENSOR_INTERVAL_TICKS == 0) {
-            readings = sensors.scan(car.x(), car.y(), car.heading(), car.worldVx(), car.worldVy(), obstacles);
+            readings = sensors.scan(car.x(), car.y(), car.heading(), car.worldVx(), car.worldVy(), obstacles,
+                    world.walls());
         }
         if (tracker != null) {
             tracker.update(car.x(), car.y());
@@ -221,10 +221,10 @@ public final class Simulation {
 
         applied = inputs;
         car.step(dt, inputs, surface);
-        for (CollisionSystem.Impact impact : collisions.resolve(car, obstacles)) {
+        for (CollisionSystem.Impact impact : collisions.resolve(car, obstacles, world.walls())) {
             if (impact.impactSpeed() > 0.5) {
                 alerts.publish(time, Alert.Severity.CRITICAL, Alert.Category.COLLISION,
-                        String.format("Collision with %s at %.0f km/h", impact.obstacle().label().toLowerCase(),
+                        String.format("Collision with %s at %.0f km/h", impact.what(),
                                 impact.impactSpeed() * 3.6), "Collision system");
                 if (mode == DriveMode.AUTOPILOT) {
                     setMode(DriveMode.MANUAL);
@@ -277,12 +277,20 @@ public final class Simulation {
     private void updateLights(double dt) {
         Lights.Indicator auto = Lights.Indicator.OFF;
         if (mode == DriveMode.AUTOPILOT && tracker != null) {
-            // From shortly before the turn until the car is through it, as a driver would.
-            for (Route.Maneuver m : tracker.route().maneuvers()) {
-                double ahead = m.arc() - tracker.arc();
-                if (ahead < INDICATE_BEFORE_TURN && ahead > -TURN_LENGTH && m.type() != Route.Maneuver.Type.ARRIVE) {
-                    auto = m.type() == Route.Maneuver.Type.LEFT ? Lights.Indicator.LEFT : Lights.Indicator.RIGHT;
-                    break;
+            // From shortly before the turn until the car is through the junction, as a driver would.
+            double arc = tracker.arc();
+            for (Route.JunctionEntry j : tracker.route().junctions()) {
+                if (arc > j.exitArc() || j.entryArc() - arc > INDICATE_BEFORE_TURN) {
+                    continue;
+                }
+                RoadNetwork.Turn turn = world.network().connector(j.connector()).turn();
+                if (turn == RoadNetwork.Turn.LEFT) {
+                    auto = Lights.Indicator.LEFT;
+                } else if (turn == RoadNetwork.Turn.RIGHT || turn == RoadNetwork.Turn.UTURN) {
+                    auto = Lights.Indicator.RIGHT;
+                }
+                if (turn != RoadNetwork.Turn.STRAIGHT) {
+                    break; // the turn the car is in, or the next one
                 }
             }
         }
@@ -341,7 +349,7 @@ public final class Simulation {
     }
 
     private List<Obstacle> obstacles() {
-        List<Obstacle> all = new ArrayList<>(world.buildings());
+        List<Obstacle> all = new ArrayList<>();
         all.addAll(scenarios.actors());
         return all;
     }
@@ -443,8 +451,12 @@ public final class Simulation {
             notifyDriver("Drive onto a road in the direction of travel to plan a route");
             return;
         }
-        RoadGraph.Node goal = graph.nodeAt(place.location()).orElseThrow();
-        Optional<Route> route = plan(here.get(), goal, place.name());
+        RoadNetwork.Position goal = world.nearestKerb(place.location());
+        if (goal == null) {
+            notifyDriver("No road near " + place.name());
+            return;
+        }
+        Optional<Route> route = plan(here.get(), goal.link().id(), goal.arc(), place.name());
         if (route.isEmpty()) {
             notifyDriver("No open route to " + place.name());
             return;
@@ -455,9 +467,9 @@ public final class Simulation {
                 route.get().length() / 1000, Math.ceil(route.get().estimatedSeconds() / 60)));
     }
 
-    private Optional<Route> plan(RoadGraph.Location from, RoadGraph.Node goal, String name) {
-        return PathFinder.aStar().find(graph, from.edge(), from.arc(), goal, closedEdges)
-                .map(result -> Route.build(result.edges(), from.arc(), name));
+    private Optional<Route> plan(RoadGraph.Location from, int goalEdge, double goalArc, String name) {
+        return PathFinder.aStar().find(graph, from.edge(), from.arc(), graph.edge(goalEdge), goalArc, closedEdges)
+                .map(result -> Route.build(world.network(), result.edges(), from.arc(), from.lane(), goalArc, name));
     }
 
     public void clearRoute() {
@@ -574,11 +586,11 @@ public final class Simulation {
             return;
         }
         int current = Math.max(0, ids.indexOf(here.get().edge().id()));
-        RoadGraph.Node goal = graph.edge(ids.get(ids.size() - 1)).to();
+        Route routeNow = tracker.route();
         // Close the first road ahead that has a way around it (the circuit and the connector have none).
         for (int i = current + 1; i < ids.size(); i++) {
             RoadGraph.Edge edge = graph.edge(ids.get(i));
-            if (edge.to().id() == goal.id()) {
+            if (edge.id() == routeNow.goalEdge() || edge.reverseId() == routeNow.goalEdge()) {
                 break; // never close the destination's own street
             }
             Set<Integer> trial = new HashSet<>(closedEdges);
@@ -587,7 +599,8 @@ public final class Simulation {
                 trial.add(edge.reverseId());
             }
             boolean detourExists = PathFinder.aStar()
-                    .find(graph, here.get().edge(), here.get().arc(), goal, trial).isPresent();
+                    .find(graph, here.get().edge(), here.get().arc(), graph.edge(routeNow.goalEdge()), routeNow.goalArc(), trial)
+                    .isPresent();
             if (!detourExists) {
                 continue;
             }
@@ -609,8 +622,7 @@ public final class Simulation {
         }
         Route old = tracker.route();
         Optional<RoadGraph.Location> here = graph.locate(car.x(), car.y(), car.heading());
-        RoadGraph.Node goal = graph.edge(old.edgeIds().get(old.edgeIds().size() - 1)).to();
-        Optional<Route> route = here.flatMap(l -> plan(l, goal, old.destination()));
+        Optional<Route> route = here.flatMap(l -> plan(l, old.goalEdge(), old.goalArc(), old.destination()));
         if (route.isEmpty()) {
             if (mode == DriveMode.AUTOPILOT) {
                 setMode(DriveMode.MANUAL);

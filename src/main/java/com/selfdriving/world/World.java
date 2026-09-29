@@ -32,6 +32,7 @@ public final class World {
     private static final double LANE_CLEARANCE = 1.5;
 
     private final ProvingGround provingGround;
+    private final ParkingArea parkingArea = new ParkingArea();
     private final MapData city;
     private final RoadNetwork network;
     private final List<Road> roads;
@@ -99,6 +100,7 @@ public final class World {
 
         List<Marking> allMarkings = new ArrayList<>(provingGround.markings());
         allMarkings.addAll(RoadPainter.paint(network));
+        allMarkings.addAll(parkingArea.markings());
         markings = List.copyOf(allMarkings);
 
         areas = city.areas();
@@ -435,6 +437,7 @@ public final class World {
             chosen.add(new Place(name, p.position()));
         }
         chosen.add(new Place("Proving Ground", provingGround.mainJunction()));
+        chosen.add(new Place("Car park (proving ground)", new Point2(-1.75, 28)));
         return List.copyOf(chosen);
     }
 
@@ -488,6 +491,11 @@ public final class World {
     }
 
     // ---- accessors ----------------------------------------------------------------------------
+
+    /** The car park beside the proving ground's access road. */
+    public ParkingArea parkingArea() {
+        return parkingArea;
+    }
 
     public ProvingGround provingGround() {
         return provingGround;

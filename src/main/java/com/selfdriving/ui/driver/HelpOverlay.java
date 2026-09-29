@@ -22,6 +22,7 @@ final class HelpOverlay {
             {"Backspace", "Reset to the start line"},
             {"E", "Autopilot on or off (choose a destination first)"},
             {"X", "Emergency stop"},
+            {"Q", "Park in a free space on the left (bay or kerb)"},
             {"L", "Show lidar points"},
             {"O", "On-screen wheel and pedals on or off"},
             {"Y", "Traffic: off, light, normal, heavy"},

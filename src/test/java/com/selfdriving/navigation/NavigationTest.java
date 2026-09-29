@@ -42,7 +42,7 @@ class NavigationTest {
     }
 
     private static List<Place> cityPlaces() {
-        return WORLD.places().stream().filter(p -> !p.name().equals("Proving Ground")).toList();
+        return WORLD.places().stream().filter(p -> !p.name().toLowerCase().contains("proving ground")).toList();
     }
 
     @Test

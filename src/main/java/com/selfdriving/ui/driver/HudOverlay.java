@@ -235,7 +235,7 @@ final class HudOverlay {
         turn.setVisible(nav != null);
 
         mode.setText(snapshot.mode().label());
-        setClass(mode, "autopilot", snapshot.mode() == DriveMode.AUTOPILOT);
+        setClass(mode, "autopilot", snapshot.mode() == DriveMode.AUTOPILOT || snapshot.mode() == DriveMode.AUTO_PARK);
         setClass(mode, "emergency", snapshot.mode() == DriveMode.EMERGENCY_STOP);
         if (snapshot.autopilot() != null) {
             autopilotStatus.setText(String.format("%s  \u00B7  %.0f km/h", snapshot.autopilot().status(),

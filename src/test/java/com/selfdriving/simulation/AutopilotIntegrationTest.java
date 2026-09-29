@@ -44,7 +44,7 @@ class AutopilotIntegrationTest {
     /** City places, nearest to the start first. */
     private static Place[] cityPlaces() {
         Pose start = WORLD.start();
-        return WORLD.places().stream().filter(p -> !p.name().equals("Proving Ground"))
+        return WORLD.places().stream().filter(p -> !p.name().toLowerCase().contains("proving ground"))
                 .sorted(Comparator.comparingDouble(p -> p.location().distanceTo(new Point2(start.x(), start.y()))))
                 .toArray(Place[]::new);
     }

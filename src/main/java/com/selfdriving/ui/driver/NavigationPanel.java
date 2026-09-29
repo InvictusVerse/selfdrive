@@ -35,6 +35,9 @@ final class NavigationPanel {
 
         void emergencyStop();
 
+        /** Park in a free space on the left (or cancel parking). */
+        void autoPark();
+
         void changeMaxSpeed(double deltaKmh);
 
         void setEmergencyBraking(boolean enabled);
@@ -116,7 +119,9 @@ final class NavigationPanel {
         maxSpeed.setMinWidth(Region.USE_PREF_SIZE);
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox drive = new HBox(6, autopilot, stop, spacer, slower, maxSpeed, faster);
+        Button park = button("Park", "Park in a free space on the left: a bay or along the kerb (Q)");
+        park.setOnAction(e -> actions.autoPark());
+        HBox drive = new HBox(6, autopilot, stop, park, spacer, slower, maxSpeed, faster);
         drive.setAlignment(Pos.CENTER_LEFT);
 
         Label scenariosLabel = new Label("TEST");
@@ -163,7 +168,7 @@ final class NavigationPanel {
             }
             instruction.setText(line);
         }
-        boolean engaged = s.mode() == DriveMode.AUTOPILOT;
+        boolean engaged = s.mode() == DriveMode.AUTOPILOT || s.mode() == DriveMode.AUTO_PARK;
         autopilot.setText(engaged ? "Take over" : "Start autopilot");
         setClass(autopilot, "engaged", engaged);
         autopilot.setDisable(nav == null && !engaged);

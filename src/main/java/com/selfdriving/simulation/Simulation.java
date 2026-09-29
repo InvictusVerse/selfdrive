@@ -15,6 +15,8 @@ import com.selfdriving.alerts.AlertBus;
 import com.selfdriving.autopilot.Autopilot;
 import com.selfdriving.autopilot.JunctionPlanner;
 import com.selfdriving.autopilot.LaneChangePlanner;
+import com.selfdriving.autopilot.ParkingController;
+import com.selfdriving.autopilot.ParkingPlanner;
 import com.selfdriving.autopilot.SafetyController;
 import com.selfdriving.navigation.PathFinder;
 import com.selfdriving.navigation.RoadGraph;
@@ -80,6 +82,7 @@ public final class Simulation {
     /** Indicate this far (about 3 s in town) before a lane change starts, m. */
     private static final double LANE_CHANGE_SIGNAL = 30;
     private static final double SLOW_VEHICLE_SPEED = 4.0;
+    private static final double PARK_SEARCH_SPEED = 20 / 3.6;
 
     private final VehicleParams params;
     private final World world;
@@ -99,6 +102,7 @@ public final class Simulation {
     private final TrafficSystem traffic;
     private final JunctionPlanner junctionPlanner;
     private final LaneChangePlanner laneChanges;
+    private final ParkingPlanner parkingPlanner;
     private final Pose start;
 
     private final Queue<Consumer<Simulation>> commands = new ConcurrentLinkedQueue<>();
@@ -124,6 +128,8 @@ public final class Simulation {
     private LightState lightState = LightState.off();
     private JunctionPlanner.Decision junctionDecision;
     private int redLightsRun;
+    private ParkingController parking;
+    private String parkingStatus = "";
     /** Clock time (seconds since midnight) at simulation time zero. */
     private double clockStart = java.time.LocalTime.now().toSecondOfDay();
 
@@ -142,6 +148,7 @@ public final class Simulation {
         this.traffic = new TrafficSystem(world.network(), 0, 42);
         this.junctionPlanner = new JunctionPlanner(world.network());
         this.laneChanges = new LaneChangePlanner(world.network());
+        this.parkingPlanner = new ParkingPlanner(world.network(), world.walls(), world.parkingArea().bays(), params);
         this.start = start;
         // Warnings pop up as toasts; critical alerts get their own card on the display until acknowledged.
         alerts.subscribe(alert -> {
@@ -283,6 +290,28 @@ public final class Simulation {
                 double throttle = Math.max(lastCommand.throttle(), controls.throttle());
                 return new VehicleInputs(throttle, lastCommand.brake(), lastCommand.steerAngle(), Gear.DRIVE,
                         throttle > lastCommand.throttle() ? 1 : lastCommand.regen());
+            }
+        }
+        if (mode == DriveMode.AUTO_PARK) {
+            if (driverInput.isOverriding()) {
+                setMode(DriveMode.MANUAL);
+                parking = null;
+                notifyDriver("Parking cancelled: you have control");
+            } else {
+                ParkingController.Command c = parking.update(dt, car, gearSelector.gear(), readings);
+                parkingStatus = c.status();
+                if (c.gear() != gearSelector.gear() && Math.abs(car.forwardSpeed()) < GearSelector.PARK_MAX_SPEED) {
+                    gearSelector.force(c.gear());
+                }
+                if (c.finished()) {
+                    gearSelector.force(Gear.PARK);
+                    setMode(DriveMode.MANUAL);
+                    parking = null;
+                    alerts.publish(time, Alert.Severity.INFO, Alert.Category.AUTOPILOT, "Parked", "Auto park");
+                    notifyDriver("Parked. Car secured in Park");
+                    return new VehicleInputs(0, 1, c.steerAngle(), Gear.PARK);
+                }
+                return new VehicleInputs(c.throttle(), c.brake(), c.steerAngle(), gearSelector.gear(), 1);
             }
         }
         if (mode == DriveMode.EMERGENCY_STOP) {
@@ -466,6 +495,7 @@ public final class Simulation {
     private List<Obstacle> obstacles() {
         List<Obstacle> all = new ArrayList<>(scenarios.actors());
         all.addAll(traffic.obstacles());
+        all.addAll(world.parkingArea().parkedCars());
         return all;
     }
 
@@ -655,7 +685,10 @@ public final class Simulation {
     }
 
     public void disengageAutopilot() {
-        if (mode == DriveMode.AUTOPILOT) {
+        if (mode == DriveMode.AUTO_PARK) {
+            parking = null;
+        }
+        if (mode == DriveMode.AUTOPILOT || mode == DriveMode.AUTO_PARK) {
             setMode(DriveMode.MANUAL);
             notifyDriver("Autopilot off: you have control");
         }
@@ -713,6 +746,43 @@ public final class Simulation {
         }
         scenarios.stoppedVehicle(tracker.route(), tracker.arc() + ahead, time);
         notifyDriver("Scenario: a vehicle has stopped in your lane ahead");
+    }
+
+    // ---- Commands: parking ---------------------------------------------------------------------
+
+    /**
+     * Parks the car in a free space on the left: a bay nearby if there is one, otherwise a gap
+     * along the kerb (parallel). The car must be slow and in the kerb lane.
+     */
+    public void autoPark() {
+        if (mode == DriveMode.AUTO_PARK) {
+            setMode(DriveMode.MANUAL);
+            parking = null;
+            notifyDriver("Parking cancelled");
+            return;
+        }
+        if (Math.abs(car.forwardSpeed()) > PARK_SEARCH_SPEED) {
+            notifyDriver("Slow down below 20 km/h to look for a parking space");
+            return;
+        }
+        Optional<ParkingPlanner.Plan> plan = parkingPlanner.plan(car.x(), car.y(), car.heading(), readings.detected());
+        if (plan.isEmpty()) {
+            notifyDriver("No free parking space found on the left. Drive on slowly in the left lane");
+            return;
+        }
+        if (mode == DriveMode.AUTOPILOT) {
+            tracker = null;
+        }
+        parking = new ParkingController(params, parkingPlanner, plan.get(), car);
+        setMode(DriveMode.AUTO_PARK);
+        alerts.publish(time, Alert.Severity.INFO, Alert.Category.AUTOPILOT, plan.get().kind().equals("bay")
+                ? "Auto park: reversing into a bay" : "Auto park: parallel parking", "Auto park");
+        notifyDriver("Space found. Parking now: brake or steer to take over");
+    }
+
+    /** The space being parked in, or null. */
+    public OrientedBox parkingSpace() {
+        return parking == null ? null : parking.plan().space();
     }
 
     /** A slow vehicle ahead in the car's lane (to show overtaking on roads with more lanes). */
@@ -861,6 +931,16 @@ public final class Simulation {
         notifyDriver("Car reset to the start line");
     }
 
+    /** Moves the car to a pose, stopped, in Park (developer tool and demos). */
+    public void placeCar(Pose pose) {
+        car.reset(pose.x(), pose.y(), pose.heading());
+        controls.reset();
+        gearSelector.force(Gear.PARK);
+        setMode(DriveMode.MANUAL);
+        tracker = null;
+        parking = null;
+    }
+
     /** Test hook: sets the car rolling at a speed without driving there first. */
     void setSpeedForTest(double speed) {
         car.setForwardSpeed(speed);
@@ -886,6 +966,9 @@ public final class Simulation {
             double signalDistance = junctionDecision == null ? Double.POSITIVE_INFINITY : junctionDecision.signalDistance();
             autopilotStatus = new SimulationSnapshot.AutopilotStatus(lastCommand.status(), lastCommand.targetSpeed(),
                     lastCommand.leadObjectId(), signal, signalDistance);
+        } else if (mode == DriveMode.AUTO_PARK) {
+            autopilotStatus = new SimulationSnapshot.AutopilotStatus(parkingStatus, Math.abs(car.forwardSpeed()), -1,
+                    RoadNetwork.Signal.NONE, Double.POSITIVE_INFINITY);
         } else if (mode == DriveMode.AUTOPILOT) {
             autopilotStatus = new SimulationSnapshot.AutopilotStatus("Starting", 0, -1, RoadNetwork.Signal.NONE, Double.POSITIVE_INFINITY);
         }
@@ -895,6 +978,9 @@ public final class Simulation {
         }
         List<SimulationSnapshot.ActorState> actors = new ArrayList<>();
         for (Obstacle o : scenarios.actors()) {
+            actors.add(new SimulationSnapshot.ActorState(o.id(), o.kind(), o.box(), o.height(), seen.contains(o.id())));
+        }
+        for (Obstacle o : world.parkingArea().parkedCars()) {
             actors.add(new SimulationSnapshot.ActorState(o.id(), o.kind(), o.box(), o.height(), seen.contains(o.id())));
         }
         for (TrafficSystem.View v : traffic.views()) {

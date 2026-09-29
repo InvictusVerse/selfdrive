@@ -106,6 +106,8 @@ final class DevAutomation {
             case "indicator" -> simulation.submit(sim -> sim.toggleIndicator(
                     Lights.Indicator.valueOf(value.toUpperCase(Locale.ROOT))));
             case "hazard" -> simulation.submit(Simulation::toggleHazard);
+            case "park" -> simulation.submit(Simulation::autoPark);
+            case "carpark" -> simulation.submit(sim -> sim.placeCar(sim.world().parkingArea().approach()));
             case "traffic" -> simulation.submit(sim -> sim.setTrafficCount(Integer.parseInt(value)));
             case "headlights" -> simulation.submit(sim -> sim.setHeadlightMode(
                     Lights.HeadlightMode.valueOf(value.toUpperCase(Locale.ROOT))));

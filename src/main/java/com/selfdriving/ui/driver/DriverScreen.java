@@ -192,6 +192,7 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
             case N -> cycleHeadlights();
             case K -> toggleMainBeam();
             case Y -> cycleTraffic();
+            case Q -> autoPark();
             case J -> simulation.submit(sim -> sim.setHeadlightFlash(true));
             default -> handled = false;
         }
@@ -317,11 +318,16 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
 
     @Override
     public void toggleAutopilot() {
-        if (simulation.latest().mode() == DriveMode.AUTOPILOT) {
+        if (simulation.latest().mode() == DriveMode.AUTOPILOT || simulation.latest().mode() == DriveMode.AUTO_PARK) {
             simulation.submit(Simulation::disengageAutopilot);
         } else {
             simulation.submit(Simulation::engageAutopilot);
         }
+    }
+
+    @Override
+    public void autoPark() {
+        simulation.submit(Simulation::autoPark);
     }
 
     @Override

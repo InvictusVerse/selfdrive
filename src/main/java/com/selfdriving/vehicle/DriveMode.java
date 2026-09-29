@@ -7,6 +7,8 @@ public enum DriveMode {
     MANUAL("MANUAL"),
     /** The autopilot follows the route; touching the brake or steering hands control back. */
     AUTOPILOT("AUTOPILOT"),
+    /** The car is parking itself; touching the brake or steering hands control back. */
+    AUTO_PARK("AUTO PARK"),
     /** The car is braking to a stop because the driver pressed emergency stop. */
     EMERGENCY_STOP("EMERGENCY STOP");
 

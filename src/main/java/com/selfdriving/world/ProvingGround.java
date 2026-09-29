@@ -59,8 +59,7 @@ public final class ProvingGround {
             addTransverse(x, major ? 0.4 : 0.2);
         }
 
-        double rightLaneY = -CIRCUIT_WIDTH / 2 + CIRCUIT_WIDTH / CIRCUIT_LANES / 2;
-        start = new Pose(START_LINE_X - 30, rightLaneY, 0);
+        start = new Pose(START_LINE_X - 30, circuitRightLaneOffset(), 0);
     }
 
     /** Stadium-shaped loop driven anticlockwise: east along the main straight (y = 0). */
@@ -107,6 +106,57 @@ public final class ProvingGround {
 
     public List<Marking> markings() {
         return List.copyOf(markings);
+    }
+
+    // ---- Road network hooks -------------------------------------------------------------
+
+    /** Junction on the main straight where the skidpad access road starts. */
+    public Point2 mainJunction() {
+        return new Point2(0, 0);
+    }
+
+    /** Junction on the top straight where the road to the city starts. */
+    public Point2 topJunction() {
+        return new Point2(0, 2 * OVAL_RADIUS);
+    }
+
+    /** End of the skidpad access road. */
+    public Point2 skidpadEntrance() {
+        return new Point2(0, SKIDPAD_CENTRE_Y - SKIDPAD_RADIUS - SKIDPAD_WIDTH / 2);
+    }
+
+    /** Circuit from the main junction round the east bend to the top junction (driving direction). */
+    public Polyline circuitEastHalf() {
+        double h = STRAIGHT_HALF_LENGTH;
+        double r = OVAL_RADIUS;
+        List<Point2> points = new ArrayList<>(Polyline.straight(mainJunction(), new Point2(h, 0), SAMPLE_STEP));
+        points.remove(points.size() - 1);
+        List<Point2> bend = Polyline.arc(h, r, r, -Math.PI / 2, Math.PI / 2, SAMPLE_STEP);
+        points.addAll(bend.subList(0, bend.size() - 1));
+        points.addAll(Polyline.straight(new Point2(h, 2 * r), topJunction(), SAMPLE_STEP));
+        return new Polyline(points, false);
+    }
+
+    /** Circuit from the top junction round the west bend back to the main junction. */
+    public Polyline circuitWestHalf() {
+        double h = STRAIGHT_HALF_LENGTH;
+        double r = OVAL_RADIUS;
+        List<Point2> points = new ArrayList<>(Polyline.straight(topJunction(), new Point2(-h, 2 * r), SAMPLE_STEP));
+        points.remove(points.size() - 1);
+        List<Point2> bend = Polyline.arc(-h, r, r, Math.PI / 2, 3 * Math.PI / 2, SAMPLE_STEP);
+        points.addAll(bend.subList(0, bend.size() - 1));
+        points.addAll(Polyline.straight(new Point2(-h, 0), mainJunction(), SAMPLE_STEP));
+        return new Polyline(points, false);
+    }
+
+    /** Offset of the right-hand lane's centre from the circuit centre line (negative = right), m. */
+    public double circuitRightLaneOffset() {
+        return -CIRCUIT_WIDTH / 2 + CIRCUIT_WIDTH / CIRCUIT_LANES / 2;
+    }
+
+    /** Circuit width, m. */
+    public double circuitWidth() {
+        return CIRCUIT_WIDTH;
     }
 
     /** Where the car starts: right-hand lane of the main straight, facing east. */

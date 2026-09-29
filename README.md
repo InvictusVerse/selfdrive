@@ -32,6 +32,8 @@ Maven does not need to be installed. The wrapper downloads it on first use.
 
 **Touchscreen or mouse:** tap **D**, hold the on-screen **ACCEL** pedal, and drag the steering wheel.
 
+**Autopilot:** choose a destination in the Navigation card (the fastest route is planned with A\*), then press **Start autopilot** or **E**. Brake or steer to take over, and press **X** for an emergency stop. The **Pedestrian**, **Stopped car** and **Road closed** buttons put test situations in the car's path. Press **L** to show the lidar points.
+
 In IntelliJ IDEA, open the folder and choose **Run App** from the run dropdown. The shared configurations in `.run/` load automatically.
 
 ## Build and test

@@ -6,15 +6,18 @@ import javafx.scene.shape.CullFace;
 import javafx.scene.shape.MeshView;
 
 import com.selfdriving.world.Marking;
+import com.selfdriving.world.Obstacle;
+import com.selfdriving.world.OrientedBox;
 import com.selfdriving.world.Point2;
 import com.selfdriving.world.Polyline;
 import com.selfdriving.world.ProvingGround;
 import com.selfdriving.world.Road;
+import com.selfdriving.world.World;
 
 /**
- * The proving ground in 3D: dark ground with a faint grid (so motion is visible anywhere),
- * asphalt, white paint and light poles around the circuit. Each layer is merged into a single
- * mesh, so the whole world is only a handful of draw calls.
+ * The static world in 3D: dark ground with a faint grid (so motion is visible anywhere),
+ * asphalt, white paint, light poles around the circuit, city parks and buildings. Each layer is
+ * merged into a single mesh, so the whole world is only a handful of draw calls.
  */
 public final class WorldModel {
 
@@ -24,7 +27,7 @@ public final class WorldModel {
 
     private final Group root = new Group();
 
-    public WorldModel(ProvingGround ground) {
+    public WorldModel(World ground) {
         double half = ProvingGround.GROUND_HALF_SIZE;
 
         MeshFactory.Builder groundMesh = new MeshFactory.Builder();
@@ -53,7 +56,23 @@ public final class WorldModel {
         root.getChildren().add(view(paint, Materials.matte("#d7dade")));
         root.getChildren().add(view(transverse, Materials.matte("#c9a227")));
 
-        root.getChildren().add(poles(ground.roads().get(0)));
+        root.getChildren().add(poles(ground.provingGround().roads().get(0)));
+
+        MeshFactory.Builder parks = new MeshFactory.Builder();
+        for (double[] park : ground.city().parks()) {
+            MeshFactory.rectangle(parks, park[0], park[1], park[2], park[3], -0.006);
+        }
+        root.getChildren().add(view(parks, Materials.matte("#1c2a22")));
+
+        MeshFactory.Builder buildings = new MeshFactory.Builder();
+        for (Obstacle b : ground.buildings()) {
+            OrientedBox box = b.box();
+            MeshFactory.box(buildings, box.cx(), -b.height() / 2, box.cy(), 2 * box.halfLength(), b.height(),
+                    2 * box.halfWidth());
+        }
+        MeshView city = view(buildings, Materials.glossy("#7d838c", "#2a2d31", 10));
+        city.setCullFace(CullFace.BACK);
+        root.getChildren().add(city);
     }
 
     public Group node() {

@@ -291,3 +291,158 @@
     -fx-pref-height: 28px;
     -fx-background-color: -sd-border;
 }
+
+/* ---- Stage 2: navigation, autopilot, safety, alerts ----------------------------------- */
+
+.limit-sign {
+    -fx-min-width: 40px;
+    -fx-min-height: 40px;
+    -fx-max-width: 40px;
+    -fx-max-height: 40px;
+    -fx-alignment: center;
+    -fx-background-color: white;
+    -fx-background-radius: 20;
+    -fx-border-color: #d7262b;
+    -fx-border-width: 4;
+    -fx-border-radius: 20;
+    -fx-text-fill: #111;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.mode-chip.autopilot {
+    -fx-background-color: -sd-accent;
+    -fx-text-fill: white;
+}
+
+.mode-chip.emergency {
+    -fx-background-color: -sd-danger;
+    -fx-text-fill: white;
+}
+
+.autopilot-status {
+    -fx-background-color: rgba(31, 34, 40, 0.85);
+    -fx-background-radius: 10;
+    -fx-padding: 4 10 4 10;
+    -fx-font-size: 13px;
+    -fx-text-fill: #cfd7ff;
+}
+
+.turn-banner {
+    -fx-background-color: rgba(21, 23, 27, 0.9);
+    -fx-background-radius: 12;
+    -fx-border-color: -sd-border;
+    -fx-border-radius: 12;
+    -fx-padding: 8 16 8 16;
+    -fx-font-size: 15px;
+    -fx-text-fill: -sd-text;
+}
+
+.safety-banner {
+    -fx-background-color: -sd-warning;
+    -fx-background-radius: 12;
+    -fx-padding: 10 22 10 22;
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1a1300;
+}
+
+.safety-banner.critical {
+    -fx-background-color: -sd-danger;
+    -fx-text-fill: white;
+}
+
+.alert-card {
+    -fx-background-color: rgba(58, 22, 25, 0.94);
+    -fx-background-radius: 10;
+    -fx-border-color: -sd-danger;
+    -fx-border-radius: 10;
+    -fx-padding: 8 10 8 12;
+}
+
+.alert-text {
+    -fx-text-fill: #ffd6d7;
+    -fx-font-size: 13px;
+}
+
+.alert-dismiss {
+    -fx-text-fill: white;
+    -fx-font-size: 14px;
+    -fx-padding: 2 6 2 6;
+    -fx-cursor: hand;
+    -fx-background-radius: 6;
+}
+
+.alert-dismiss:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.15);
+}
+
+.nav-summary {
+    -fx-font-size: 16px;
+    -fx-text-fill: -sd-text;
+}
+
+.nav-instruction {
+    -fx-font-size: 13px;
+    -fx-text-fill: -sd-text-muted;
+}
+
+.dock-button.primary, .dock-button.autopilot-button {
+    -fx-background-color: -sd-accent;
+    -fx-border-color: -sd-accent;
+    -fx-text-fill: white;
+}
+
+.dock-button.autopilot-button.engaged {
+    -fx-background-color: -sd-surface-raised;
+    -fx-border-color: -sd-accent;
+}
+
+.dock-button.danger {
+    -fx-background-color: #3a1d1f;
+    -fx-border-color: -sd-danger;
+    -fx-text-fill: #ffb3b5;
+}
+
+.dock-button.danger:hover {
+    -fx-background-color: #52262a;
+}
+
+.combo-box.destination-box {
+    -fx-background-color: -sd-surface-raised;
+    -fx-background-radius: 10;
+    -fx-border-color: -sd-border;
+    -fx-border-radius: 10;
+}
+
+.combo-box.destination-box .list-cell {
+    -fx-text-fill: -sd-text;
+    -fx-background-color: transparent;
+}
+
+.combo-box.destination-box .arrow {
+    -fx-background-color: -sd-text-muted;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: -sd-surface-raised;
+    -fx-border-color: -sd-border;
+}
+
+.combo-box-popup .list-view .list-cell {
+    -fx-background-color: -sd-surface-raised;
+    -fx-text-fill: -sd-text;
+    -fx-padding: 6 12 6 12;
+}
+
+.combo-box-popup .list-view .list-cell:hover,
+.combo-box-popup .list-view .list-cell:selected {
+    -fx-background-color: -sd-accent;
+    -fx-text-fill: white;
+}
+
+.tooltip {
+    -fx-background-color: -sd-surface-raised;
+    -fx-text-fill: -sd-text;
+    -fx-font-size: 12px;
+}

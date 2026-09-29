@@ -44,6 +44,25 @@ public final class ElectricMotor {
         };
     }
 
+    /**
+     * Deceleration full regeneration would give at a speed, m/s^2 (for controllers that want
+     * to blend regen and friction brakes).
+     *
+     * @param vehicleSpeed m/s
+     * @param wheelRadius  m
+     * @param mass         kg
+     */
+    public double regenDeceleration(double vehicleSpeed, double wheelRadius, double mass) {
+        double motorOmega = Math.abs(vehicleSpeed) / wheelRadius * params.gearRatio();
+        return regen(motorOmega, vehicleSpeed) * params.gearRatio() / wheelRadius / mass;
+    }
+
+    /** Largest drive force at a speed, N. */
+    public double driveForce(double vehicleSpeed, double wheelRadius) {
+        double motorOmega = Math.abs(vehicleSpeed) / wheelRadius * params.gearRatio();
+        return available(motorOmega) * params.gearRatio() / wheelRadius;
+    }
+
     /** Maximum drive torque available at this motor speed, N*m. */
     public double available(double motorOmega) {
         double speed = Math.abs(motorOmega);

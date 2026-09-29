@@ -8,12 +8,21 @@ package com.selfdriving.physics;
  * @param brake      brake pedal, 0..1
  * @param steerAngle road-wheel angle of an equivalent single front wheel, rad (positive = left)
  * @param gear       drive selector position
+ * @param regenLevel how strongly the motor regenerates with the accelerator released, 0..1.
+ *                   A human driver gets full "one-pedal" regen (1); the autopilot blends it
+ *                   to decelerate smoothly.
  */
-public record VehicleInputs(double throttle, double brake, double steerAngle, Gear gear) {
+public record VehicleInputs(double throttle, double brake, double steerAngle, Gear gear, double regenLevel) {
 
     public VehicleInputs {
         throttle = clamp(throttle, 0, 1);
         brake = clamp(brake, 0, 1);
+        regenLevel = clamp(regenLevel, 0, 1);
+    }
+
+    /** Driver inputs with full one-pedal regeneration. */
+    public VehicleInputs(double throttle, double brake, double steerAngle, Gear gear) {
+        this(throttle, brake, steerAngle, gear, 1.0);
     }
 
     /** No pedals, straight wheels, in Park. */

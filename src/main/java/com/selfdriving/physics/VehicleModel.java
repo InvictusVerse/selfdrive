@@ -105,6 +105,48 @@ public final class VehicleModel {
         }
     }
 
+    /**
+     * Resolves contact with a solid object: moves the car out of it and removes the part of
+     * its velocity that goes into the object (with a little bounce). Rotation is damped.
+     *
+     * @param nx          contact normal east (pointing away from the object)
+     * @param ny          contact normal north
+     * @param depth       how far the car is inside the object, m
+     * @param restitution bounce, 0 (dead stop) .. 1 (perfect bounce)
+     * @return impact speed into the object, m/s (0 if already separating)
+     */
+    public double resolveContact(double nx, double ny, double depth, double restitution) {
+        x += nx * depth;
+        y += ny * depth;
+        double c = Math.cos(heading);
+        double s = Math.sin(heading);
+        double wx = vx * c - vy * s;
+        double wy = vx * s + vy * c;
+        double into = wx * nx + wy * ny;
+        if (into >= 0) {
+            return 0;
+        }
+        wx -= (1 + restitution) * into * nx;
+        wy -= (1 + restitution) * into * ny;
+        vx = wx * c + wy * s;
+        vy = -wx * s + wy * c;
+        yawRate *= 0.5;
+        for (Wheel w : wheels) {
+            w.omega = vx / params.wheelRadius();
+        }
+        return -into;
+    }
+
+    /** Velocity east in world coordinates, m/s. */
+    public double worldVx() {
+        return vx * Math.cos(heading) - vy * Math.sin(heading);
+    }
+
+    /** Velocity north in world coordinates, m/s. */
+    public double worldVy() {
+        return vx * Math.sin(heading) + vy * Math.cos(heading);
+    }
+
     /** Advances the car by {@code dt} seconds, split into {@link #SUBSTEPS} physics steps. */
     public void step(double dt, VehicleInputs inputs, Surface surface) {
         double h = dt / SUBSTEPS;
@@ -138,7 +180,7 @@ public final class VehicleModel {
         if (accelerating) {
             motorTorque *= tcsFactor;
         } else if (regenerating) {
-            motorTorque *= regenFactor;
+            motorTorque *= regenFactor * in.regenLevel();
         }
         if (battery.isEmpty() && motorTorque * direction > 0) {
             motorTorque = 0;
@@ -361,6 +403,10 @@ public final class VehicleModel {
 
     public Battery battery() {
         return battery;
+    }
+
+    public ElectricMotor motor() {
+        return motor;
     }
 
     /** Motor torque, N*m. */

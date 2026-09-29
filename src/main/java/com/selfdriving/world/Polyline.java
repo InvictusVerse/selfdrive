@@ -115,6 +115,55 @@ public final class Polyline {
         return result;
     }
 
+    /**
+     * Closest point on the line to (x, y).
+     *
+     * @param arc      distance along the line from its first point, m
+     * @param distance distance from (x, y) to the line, m
+     * @param heading  direction of the line at that point, rad
+     */
+    public record Projection(double arc, double distance, double heading) {
+    }
+
+    /** Projects a point onto the line (open lines only use their actual segments). */
+    public Projection project(double x, double y) {
+        List<Point2> path = new ArrayList<>(points);
+        if (closed) {
+            path.add(points.get(0));
+        }
+        double bestDistance = Double.MAX_VALUE;
+        double bestArc = 0;
+        double bestHeading = 0;
+        double travelled = 0;
+        for (int i = 1; i < path.size(); i++) {
+            Point2 a = path.get(i - 1);
+            Point2 b = path.get(i);
+            double sx = b.x() - a.x();
+            double sy = b.y() - a.y();
+            double len2 = sx * sx + sy * sy;
+            double len = Math.sqrt(len2);
+            double t = len2 < 1e-12 ? 0 : ((x - a.x()) * sx + (y - a.y()) * sy) / len2;
+            t = Math.max(0, Math.min(1, t));
+            double px = a.x() + sx * t;
+            double py = a.y() + sy * t;
+            double d = Math.hypot(x - px, y - py);
+            if (d < bestDistance) {
+                bestDistance = d;
+                bestArc = travelled + t * len;
+                bestHeading = Math.atan2(sy, sx);
+            }
+            travelled += len;
+        }
+        return new Projection(bestArc, bestDistance, bestHeading);
+    }
+
+    /** The same line in the opposite direction. */
+    public Polyline reversed() {
+        List<Point2> copy = new ArrayList<>(points);
+        java.util.Collections.reverse(copy);
+        return new Polyline(copy, closed);
+    }
+
     // ---- Builders -----------------------------------------------------------------------
 
     /** Points along a circular arc, spaced about {@code step} metres apart. */

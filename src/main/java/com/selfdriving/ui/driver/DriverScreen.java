@@ -22,8 +22,10 @@ import com.selfdriving.simulation.Simulation;
 import com.selfdriving.simulation.SimulationSnapshot;
 import com.selfdriving.ui.render.CameraRig;
 import com.selfdriving.ui.render.DrivingView;
+import com.selfdriving.vehicle.DriveMode;
 import com.selfdriving.vehicle.DriverInput;
-import com.selfdriving.world.ProvingGround;
+import com.selfdriving.world.Place;
+import com.selfdriving.world.World;
 
 /**
  * The driver's display, laid out like an electric car's centre screen: the live 3D view with
@@ -31,7 +33,7 @@ import com.selfdriving.world.ProvingGround;
  * bottom. Reads the simulation's latest snapshot every frame and sends key presses and button
  * commands back to it.
  */
-public final class DriverScreen implements ControlDock.Actions {
+public final class DriverScreen implements ControlDock.Actions, NavigationPanel.Actions {
 
     private static final double SIDE_PANEL_WIDTH = 640;
     private static final double SLOW_MOTION_SCALE = 0.25;
@@ -40,7 +42,8 @@ public final class DriverScreen implements ControlDock.Actions {
     private final DriverInput input;
     private final BorderPane root = new BorderPane();
     private final DrivingView drivingView;
-    private final HudOverlay hud = new HudOverlay(this::selectGear);
+    private final HudOverlay hud = new HudOverlay(this::selectGear, this::acknowledgeAlert);
+    private final NavigationPanel navigation;
     private final TouchControls touch;
     private final Toast toast = new Toast();
     private final HelpOverlay help = new HelpOverlay();
@@ -52,12 +55,13 @@ public final class DriverScreen implements ControlDock.Actions {
     private final Set<KeyCode> heldKeys = EnumSet.noneOf(KeyCode.class);
     private final AnimationTimer frameTimer;
 
-    public DriverScreen(Simulation simulation, ProvingGround ground) {
+    public DriverScreen(Simulation simulation, World ground) {
         this.simulation = simulation;
         this.input = simulation.driverInput();
         this.drivingView = new DrivingView(ground, simulation.params());
-        this.map = new MapView(ground);
+        this.map = new MapView(ground, simulation.graph());
         this.touch = new TouchControls(input);
+        this.navigation = new NavigationPanel(ground.places(), this);
 
         StackPane viewStack = new StackPane(drivingView.node(), touch.node(), hud.node(), toast.node(),
                 help.node());
@@ -73,7 +77,7 @@ public final class DriverScreen implements ControlDock.Actions {
                 card("GRIP  \u00B7  g-g", frictionCircle.node()),
                 card("TYRES", tyres.node()),
                 card("ENERGY", energy.node()));
-        VBox side = new VBox(mapCard, telemetry);
+        VBox side = new VBox(navigation.node(), mapCard, telemetry);
         side.getStyleClass().add("side-panel");
         side.setPrefWidth(SIDE_PANEL_WIDTH);
         side.setMinWidth(SIDE_PANEL_WIDTH);
@@ -127,11 +131,12 @@ public final class DriverScreen implements ControlDock.Actions {
 
     private void render(double dt) {
         SimulationSnapshot snapshot = simulation.latest();
-        drivingView.update(snapshot.vehicle(), dt);
+        drivingView.update(snapshot, dt);
         CameraRig.Mode mode = drivingView.cameraRig().mode();
         hud.update(snapshot, mode);
         touch.update(snapshot.vehicle());
-        map.draw(snapshot.vehicle());
+        map.draw(snapshot);
+        navigation.update(snapshot);
         frictionCircle.draw(snapshot.vehicle());
         tyres.draw(snapshot.vehicle());
         energy.update(snapshot);
@@ -173,6 +178,12 @@ public final class DriverScreen implements ControlDock.Actions {
             case P -> setPaused(!simulation.latest().paused());
             case BACK_SPACE -> resetCar();
             case H, F1 -> toggleHelp();
+            case E -> toggleAutopilot();
+            case X -> emergencyStop();
+            case L -> {
+                drivingView.setLidarVisible(!drivingView.lidarVisible());
+                toast.show(drivingView.lidarVisible() ? "Lidar points on" : "Lidar points off");
+            }
             default -> handled = false;
         }
         if (handled) {
@@ -276,6 +287,67 @@ public final class DriverScreen implements ControlDock.Actions {
 
     public void setHelpVisible(boolean visible) {
         help.setVisible(visible);
+    }
+
+    // ---- Actions (navigation card and HUD) -----------------------------------------------------
+
+    @Override
+    public void planRoute(Place destination) {
+        simulation.submit(sim -> sim.setDestination(destination));
+    }
+
+    @Override
+    public void clearRoute() {
+        simulation.submit(Simulation::clearRoute);
+    }
+
+    @Override
+    public void toggleAutopilot() {
+        if (simulation.latest().mode() == DriveMode.AUTOPILOT) {
+            simulation.submit(Simulation::disengageAutopilot);
+        } else {
+            simulation.submit(Simulation::engageAutopilot);
+        }
+    }
+
+    @Override
+    public void emergencyStop() {
+        simulation.submit(Simulation::emergencyStop);
+    }
+
+    @Override
+    public void changeMaxSpeed(double deltaKmh) {
+        double current = simulation.latest().settings().maxAutopilotSpeed();
+        simulation.submit(sim -> sim.setMaxAutopilotSpeed(current + deltaKmh / 3.6));
+    }
+
+    @Override
+    public void setEmergencyBraking(boolean enabled) {
+        simulation.submit(sim -> sim.setEmergencyBrakingEnabled(enabled));
+    }
+
+    @Override
+    public void scenarioPedestrian() {
+        simulation.submit(Simulation::scenarioPedestrian);
+    }
+
+    @Override
+    public void scenarioStoppedVehicle() {
+        simulation.submit(Simulation::scenarioStoppedVehicle);
+    }
+
+    @Override
+    public void scenarioRoadClosed() {
+        simulation.submit(Simulation::scenarioRoadClosed);
+    }
+
+    @Override
+    public void clearScenarios() {
+        simulation.submit(Simulation::clearScenarios);
+    }
+
+    private void acknowledgeAlert(long id) {
+        simulation.submit(sim -> sim.acknowledgeAlert(id));
     }
 
     private static VBox card(String title, Node content) {

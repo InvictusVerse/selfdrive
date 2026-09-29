@@ -11,13 +11,15 @@ import org.junit.jupiter.api.Test;
 import com.selfdriving.physics.Gear;
 import com.selfdriving.physics.VehicleParams;
 import com.selfdriving.world.Pose;
+import com.selfdriving.world.World;
 
 /** Drives the whole simulation the way the UI does: keys, commands and snapshots. */
 class SimulationTest {
 
     private static final double TICK = SimulationLoop.TICK_SECONDS;
+    private static final World WORLD = new World();
 
-    private final Simulation sim = new Simulation(VehicleParams.electricSedan(), new Pose(0, 0, 0));
+    private final Simulation sim = new Simulation(VehicleParams.electricSedan(), WORLD, new Pose(0, 0, 0));
 
     private void run(double seconds) {
         int ticks = (int) Math.round(seconds / TICK);

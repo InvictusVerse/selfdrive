@@ -1,13 +1,33 @@
 package com.selfdriving.simulation;
 
+import java.util.List;
+import java.util.Set;
+
+import com.selfdriving.alerts.Alert;
+import com.selfdriving.autopilot.SafetyController;
+import com.selfdriving.navigation.Route;
+import com.selfdriving.sensors.SensorReadings;
+import com.selfdriving.vehicle.DriveMode;
 import com.selfdriving.vehicle.VehicleState;
+import com.selfdriving.world.Obstacle;
+import com.selfdriving.world.OrientedBox;
 
 /**
- * Everything the display needs after one simulation tick.
+ * Everything the display needs after one simulation tick. Immutable.
  *
  * @param tick               tick counter
  * @param time               simulated time, s
  * @param vehicle            car state
+ * @param mode               who is driving
+ * @param navigation         route progress, or null without a route
+ * @param autopilot          autopilot status, or null when not engaged
+ * @param safety             collision warning / emergency braking assessment
+ * @param sensors            latest sensor scan
+ * @param actors             moving and temporary objects (pedestrians, vehicles, barriers)
+ * @param closedEdges        ids of closed road edges
+ * @param alerts             recent alerts, newest first
+ * @param criticalAlerts     critical alerts not yet acknowledged
+ * @param settings           driver-adjustable settings
  * @param lastBrakeTest      most recent braking test, or null
  * @param lastAccelTest      most recent 0-100 km/h run, or null
  * @param accelTestRunning   true while a 0-100 km/h run is being timed
@@ -20,6 +40,16 @@ public record SimulationSnapshot(
         long tick,
         double time,
         VehicleState vehicle,
+        DriveMode mode,
+        Navigation navigation,
+        AutopilotStatus autopilot,
+        SafetyController.Assessment safety,
+        SensorReadings sensors,
+        List<ActorState> actors,
+        Set<Integer> closedEdges,
+        List<Alert> alerts,
+        List<Alert> criticalAlerts,
+        Settings settings,
         PerformanceMonitor.BrakeTest lastBrakeTest,
         PerformanceMonitor.AccelerationTest lastAccelTest,
         boolean accelTestRunning,
@@ -27,4 +57,59 @@ public record SimulationSnapshot(
         boolean brakeTestRunning,
         boolean paused,
         double timeScale) {
+
+    public SimulationSnapshot {
+        actors = List.copyOf(actors);
+        closedEdges = Set.copyOf(closedEdges);
+        alerts = List.copyOf(alerts);
+        criticalAlerts = List.copyOf(criticalAlerts);
+    }
+
+    /**
+     * Route progress.
+     *
+     * @param route               the planned route (immutable)
+     * @param arc                 distance driven along it, m
+     * @param remainingDistance   m
+     * @param remainingSeconds    s
+     * @param nextInstruction     next direction
+     * @param distanceToNext      distance to the next direction, m
+     * @param speedLimit          current road's speed limit, m/s
+     * @param lateralError        distance from the planned path, m
+     */
+    public record Navigation(Route route, double arc, double remainingDistance, double remainingSeconds,
+                             String nextInstruction, double distanceToNext, double speedLimit,
+                             double lateralError) {
+    }
+
+    /**
+     * What the autopilot is doing.
+     *
+     * @param status       short explanation for the driver
+     * @param targetSpeed  speed it is aiming for, m/s
+     * @param leadObjectId object it is following or stopping for, or -1
+     */
+    public record AutopilotStatus(String status, double targetSpeed, int leadObjectId) {
+    }
+
+    /**
+     * A moving or temporary object.
+     *
+     * @param id       obstacle id
+     * @param kind     what it is
+     * @param box      footprint
+     * @param height   m
+     * @param detected whether the car's sensors currently see it
+     */
+    public record ActorState(int id, Obstacle.Kind kind, OrientedBox box, double height, boolean detected) {
+    }
+
+    /**
+     * Driver-adjustable settings.
+     *
+     * @param maxAutopilotSpeed      m/s
+     * @param emergencyBrakingEnabled automatic emergency braking on
+     */
+    public record Settings(double maxAutopilotSpeed, boolean emergencyBrakingEnabled) {
+    }
 }

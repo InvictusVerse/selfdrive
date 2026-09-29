@@ -221,73 +221,105 @@ The car is a **rigid body** on a flat plane (position x, y and heading ψ, veloc
 
 Rolling resistance is added to μ in the braking formula. On dry roads that changes the result by 1 %, but on ice (μ = 0.1) it is a tenth of the grip, so leaving it out would give the wrong answer. The same measurement runs live in the app: brake fully (Space) from speed and the display shows measured vs theoretical distance.
 
-### 5.3 Sensors
+### 5.3 Sensors and the world they see
 
-📐 *Designed (Stage 2)*
+✅ *Built* (`sensors`, `world`) · verified by `SensorTest`
 
-Sensors are simulated by **ray casting**: straight lines are shot out from the car and tested against the shapes of obstacles in the world.
+**The world** (`World`) is the proving ground plus a **city district** to the north: a 9 × 4 grid of two-way streets (8 m wide, one lane each way, 50 km/h), 84 buildings from 10 to 70 m tall (fixed random seed, so every run is identical), three parks and seven named places. A 60 km/h connector joins it to the circuit. Everything solid is an `Obstacle`: a rotatable box (`OrientedBox`) with a kind (building, car, pedestrian, barrier) and, for moving things, a `Behaviour`.
 
-| Sensor | Coverage | Returns | Used for |
+**Sensors** are simulated by **ray casting**: straight lines from the sensor, tested against every obstacle's box (slab method). A cheap distance check first drops obstacles that are out of range.
+
+| Sensor | Coverage | Returns | Rate |
 |---|---|---|---|
-| **Lidar** | 360°, ~100 m, many rays per sweep | Distance per ray (point cloud) | Obstacle detection, 3D visualisation |
-| **Front radar** | ~160 m, narrow cone ahead | Distance + closing speed of the nearest object | Adaptive cruise, emergency braking |
-| **Ultrasonic** (×8) | ~8 m around the car | Near distance | Low-speed manoeuvres, parking |
+| **Lidar** (roof) | 360°, 100 m, 720 rays (0.5° apart, so rays are 35 cm apart at 40 m and even a pedestrian is always hit) | Distance per ray, ±3 cm noise | 60 Hz |
+| **Front radar** (bumper) | ±8°, 160 m, 33 rays | Range and **closing speed** (Doppler: relative velocity along the line of sight) of the nearest object | 60 Hz |
+| **Ultrasonic** ×8 (bumpers) | 5 m, corners, front and rear | Short distances | 60 Hz |
 
-Readings get small random noise so they are not unrealistically perfect. A sensor can be put into a **fault** state (dead, noisy, stuck). The autopilot then has less information, the fault raises an alert, and the technician can diagnose and fix it.
+**Perception** turns returns into a list of `DetectedObject`s: anything a lidar ray or the radar hit, with measured position (±5 cm noise), size and velocity. Buildings count as map data, not objects. Each sensor can be switched off to simulate a failure: the rest keep working, and the autopilot refuses to start with no forward sensor.
+
+**Collisions** (`CollisionSystem`): the car's footprint is tested against every nearby obstacle with the separating axis theorem. On contact the car is pushed out and loses the speed that went into the object (15 % bounce). A collision raises a critical alert and hands control back to the driver.
 
 ### 5.4 Navigation and route optimisation
 
-📐 *Designed (Stage 2)*
+✅ *Built* (`navigation`) · verified by `NavigationTest`
 
-The city is a **road graph**. Intersections are nodes, and roads are edges with length, speed limit, lane count, surface and a *blocked* flag. The map, 3D city and routing all come from this one graph.
+**Road graph** (`RoadGraph`): junctions are nodes, and each *direction of travel* on a road is its own edge, with the lane to drive in (traffic drives on the right), its length and speed limit. The graph has 39 junctions and 154 edges. The circuit is one-way (anticlockwise) at 100 km/h. The graph is immutable; closed roads are kept in a separate set.
 
-- **Path finding:** **A\*** finds the fastest route. The edge cost is travel time (length ÷ expected speed) plus penalties for blocked or slow roads. The heuristic is straight-line distance ÷ the highest speed limit, so it never overestimates and A\* stays optimal. **Dijkstra** is also included to compare against A\* in tests.
-- **Destination input:** the driver picks a named place (e.g. "Tech Park", "Central Station") or clicks the map. The nearest road point becomes the goal.
-- **ETA:** the sum over route edges of *length ÷ expected speed*, recalculated live from the car's actual progress.
-- **Re-routing:** if a road on the route becomes blocked (demo scenario), A\* runs again from the car's position and the driver sees the new route and ETA.
+**Fastest route** (`PathFinder`): the search runs over *edges*, not junctions. That makes it easy to start part-way along a road and to forbid U-turns at junctions. Cost is travel time at the speed limit; closed roads are skipped.
+- **A\***: the heuristic is straight-line distance ÷ the highest speed limit. It never overestimates, so the result is still the fastest route.
+- **Dijkstra**: the same search with no heuristic. The tests check both give identical travel times to every place, and that A\* examines fewer roads.
+
+**Drivable path** (`Route`): the chosen lanes are joined with rounded corners (quadratic Bézier curves whose control point is where the two lanes would meet), then resampled every 1.5 m. Each point gets a **target speed**:
+1. the road's limit,
+2. capped by comfortable cornering, *v = √(2.5 m/s² / curvature)*, with curvature measured from three points 4.5 m apart,
+3. then a backward pass so the car can always brake at 2 m/s² in time for the next corner and for the stop at the destination: *v<sub>i</sub> = min(v<sub>i</sub>, √(v<sub>i+1</sub>² + 2·a·Δs))*.
+
+Turn-by-turn directions ("Turn right onto Connector") are found where the heading changes by more than 30°.
+
+**Progress** (`RouteTracker`): projects the car onto the path, searching only near its last position, so it can't jump to a later part of the route that passes nearby. It gives distance and time remaining, the next direction, the distance from the path, and whether the car has left the route (> 12 m).
+
+**Re-routing:** closing a road (test scenario) re-plans from where the car is. The scenario only closes a road that has a way around it: the circuit and the connector have none.
 
 ### 5.5 Autopilot
 
-📐 *Designed (Stage 2)*
+✅ *Built* (`autopilot`) · verified by `AutopilotIntegrationTest`
 
-The autopilot converts the route into throttle, brake and steering **requests**:
+Every tick the autopilot picks a **target speed**, the lowest of:
+- the route's speed profile (read slightly ahead, so it starts slowing in time),
+- the driver's maximum autopilot speed (30–130 km/h, ± buttons, default 100),
+- a safe speed behind anything in the lane ahead. It keeps a gap of 4 m + 1.2 s × the other object's speed, and never goes faster than lets it stop comfortably before it (*v² = v<sub>lead</sub>² + 2·2.5·(gap − wanted gap)*).
 
-1. **Target speed** = the lowest of: road speed limit, Admin's max autopilot speed, safe cornering speed *v = √(a<sub>lat,max</sub> / curvature)*, and the speed that keeps a safe gap to the car ahead.
-2. **Speed control:** a **PID controller** turns *target − actual speed* into accelerator or brake.
-3. **Steering control:** **pure pursuit** picks a point on the lane centre a look-ahead distance ahead (longer at higher speed) and steers towards it: *δ = atan(2·L·sin α / L<sub>d</sub>)*.
-4. **Behaviour:** follow lane, slow for curves, stop at red lights and for pedestrians, stop at the destination.
+When something is ahead, the autopilot also **plans the braking**. Once a constant deceleration of 1.2 m/s² is needed to stop at the wanted gap, it brakes at exactly the rate *a = (v² − v<sub>lead</sub>²) / (2·d)* that ends there. This is fed forward, so the car doesn't lag behind the plan and never needs emergency braking for a car it has seen.
+
+**Speed control** (`SpeedController`):
+1. A **PI controller** (K<sub>p</sub> 1.0, K<sub>i</sub> 0.25, integral clamped against wind-up) turns the speed error into a wanted acceleration.
+2. Air drag and rolling resistance are added back as feed-forward.
+3. Positive demand becomes accelerator, sized by the force the motor can give at this speed.
+4. Slowing down uses **regeneration first**, blended from 0 to 100 %, and the friction brakes only for what regen can't deliver. This is why `VehicleInputs` has a regen level: a human driver gets full one-pedal regen, and the autopilot blends it.
+
+**Steering** (`PurePursuit`): aims at a point on the path 2.5 m + 0.55 s × speed ahead (between 4 and 25 m) and steers along the circle through it, *δ = atan(2·L·sin α / L<sub>d</sub>)*, measured from the rear axle. The steering angle changes at most 60°/s.
+
+**Arrival:** within 4 m of the end and stopped, the car shifts to Park, hands back control and reports "Arrived at …".
+
+**Measured in the tests:** drives 2 km from the proving ground to Central Station and parks within 12 m of the junction with no collisions. Lane error stays under 0.9 m and it never exceeds the limit by more than 2 km/h. It stops 4.2 m behind a stopped car without emergency braking and follows when that car pulls away. It stops for a crossing pedestrian with a 3.6 m gap, re-routes around a closed road and still arrives.
 
 ### 5.6 Safety controller
 
-📐 *Designed (Stage 2)*
+✅ *Built* (`SafetyController`) · verified by `SafetyControllerTest` and integration tests
 
-Sits between the autopilot or driver and the physics, and can overrule both.
+Always on, in manual driving and on autopilot, and it overrules both. Every tick it **predicts the next 3 seconds** in 0.05 s steps:
+- the car moves along its route (autopilot), or along its current arc at constant speed and yaw rate (manual),
+- every detected object moves with its measured velocity.
+
+The first moment the car's footprint, plus a 35 cm margin, would overlap an object is the **time to collision (TTC)**. This handles crossing pedestrians as well as stopped cars.
 
 | Check | Rule | Action |
 |---|---|---|
-| Forward collision warning | Time-to-collision *TTC = distance ÷ closing speed* < 2.5 s | Warning alert + sound |
-| **Automatic emergency braking** | TTC < ~1.2 s, **or** distance < stopping distance *v²/(2μg) + v·t<sub>reaction</sub>* + margin | Full braking (ABS active), critical alert |
-| Sensor failure | Required sensor faulted | Limit speed or refuse autopilot |
-| Speed limit | Above max allowed | Cap throttle |
+| **Forward collision warning** | TTC < 2.5 s | Amber banner on the display, warning alert |
+| **Automatic emergency braking** | Distance to impact < stopping distance *v² / (2·0.85·μ·g)* + 0.25 s reaction + 1.5 m, or TTC < 0.6 s | Full brakes with ABS and full regen, red banner, the object shown red, critical alert. Holds until the car has stopped and the path is clear |
+| Autopilot without forward sensors | lidar and radar both failed | Autopilot refuses to start |
 
-**Priority order:** Emergency stop → Emergency braking → Driver override → Autopilot.
+Lower grip (wet, snow, ice) means a longer stopping distance, so emergency braking starts earlier. **Priority order:** emergency stop → emergency braking → driver → autopilot.
 
 ### 5.7 Drive modes and override
 
-✅ *Built:* gears and manual driving (`vehicle` package) · 📐 *Designed (Stage 2):* autonomous mode, override, emergency stop
+✅ *Built* (`vehicle.DriveMode`, `Simulation`)
 
 ```text
-      ┌────────────┐  driver takes over   ┌──────────────────┐
-      │ AUTONOMOUS │ ───────────────────▶ │ MANUAL OVERRIDE  │
-      │            │ ◀─────────────────── │                  │
-      └─────┬──────┘  driver re-engages   └────────┬─────────┘
-            │                                      │
-            └───────────────┐      ┌───────────────┘
-                            ▼      ▼
-                       ┌────────────────┐
-                       │ EMERGENCY STOP │ ── reset when stopped ──▶ MANUAL
-                       └────────────────┘
+      ┌────────────┐   brake or steer (or Take over)   ┌──────────┐
+      │ AUTOPILOT  │ ────────────────────────────────▶ │  MANUAL  │
+      │            │ ◀──────────────────────────────── │          │
+      └─────┬──────┘   Start autopilot (needs a route) └────┬─────┘
+            │                                               │
+            └───────────────┐  Emergency stop (X)  ┌────────┘
+                            ▼                      ▼
+                       ┌─────────────────────────────┐
+                       │ EMERGENCY STOP: full brakes │ ── stopped: Park ──▶ MANUAL
+                       └─────────────────────────────┘
 ```
+
+- **Autopilot** needs a route. It shifts to Drive by itself if the car is stopped in Park or Neutral, and isn't available in Reverse. Pressing the accelerator on autopilot adds speed without switching it off. Touching the brake or steering, by key or on screen, hands control back at once.
+- **Emergency stop** brakes to a stop, whoever is driving, then secures the car in Park.
 
 - **Gears** (`GearSelector`): P, R, N, D. Leaving Park needs the brake pressed; Park needs the car stopped (< 0.5 m/s); Drive ↔ Reverse needs walking pace (< 1.5 m/s); Neutral is always allowed. A refused shift shows the reason on screen.
 - **Manual driving** (`DriverControls`): keys are turned into smooth pedal and steering positions. The accelerator ramps up in 0.5 s, the brake in 0.6 s (Space: full brake in 0.08 s), and the steering turns at a limited rate and self-centres. Steering is speed-sensitive: at speed a full key press asks for less wheel angle, sized for 12 m/s² of lateral acceleration. That's a little above dry-road grip, so the car can still be pushed into a slide.
@@ -306,13 +338,15 @@ Sits between the autopilot or driver and the physics, and can overrule both.
 
 ### 5.9 Alerts
 
-📐 *Designed (Stage 2)*
+✅ *Built* (`alerts.AlertBus`, `alerts.Alert`) · saving to the database 📐 *Stage 3*
 
-One central **alert bus** (Observer pattern). Any part of the system publishes an alert, and each dashboard subscribes to the categories its role cares about.
+One central **alert bus** (Observer pattern). Any part of the system publishes an alert, and screens subscribe to it.
 
-- **Severity:** `INFO`, `WARNING`, `CRITICAL`. Critical alerts stay on screen until acknowledged.
-- **Categories:** obstacle, collision risk, sensor, brakes, motor, battery, navigation, software update, maintenance, security (e.g. failed logins).
-- Every alert is saved to the database with who acknowledged it and when.
+- **Severity:** `INFO`, `WARNING`, `CRITICAL`.
+- **Categories:** obstacle, collision, sensor, brakes, navigation, autopilot, battery, system. Maintenance, software-update and security alerts (e.g. failed logins) are added with the stages that create them.
+- **No flooding:** the same message from the same source is not raised again within 5 s, so a condition that lasts does not fill the screen.
+- **On the driver display:** warnings appear as short toasts. Critical alerts (collision, emergency braking, emergency stop) appear as cards on the 3D view that stay until the driver acknowledges them with ✕.
+- The bus keeps the last 100 alerts. In Stage 3 every alert is also saved to the database with who acknowledged it and when.
 
 ### 5.10 Software updates (OTA)
 
@@ -365,7 +399,7 @@ The schema is created by versioned SQL scripts in `src/main/resources/db/` that 
 
 ### 5.13 User interface and 3D
 
-✅ *Built:* driver display, 3D car and proving ground (`ui.driver`, `ui.render`, `world`) · 📐 *Designed:* login (Stage 3), Admin and Technician dashboards (Stage 4), city, route and obstacles (Stage 2)
+✅ *Built:* driver display, 3D car, proving ground, city, route, obstacles and lidar view (`ui.driver`, `ui.render`, `world`) · 📐 *Designed:* login (Stage 3), Admin and Technician dashboards (Stage 4)
 
 - **Look:** dark Tesla-style theme (`theme.css`, with matching canvas colours in `ui.Palette`): near-black background, soft grey cards, one accent blue, and green/amber/red for status.
 - **Window size:** the app opens at 1600 × 900 if the desktop has room. Otherwise it opens maximised. Sizes are in scaled pixels, so Windows display scaling is handled (e.g. 1920 × 1080 at 125 % = 1536 × 864). The layout works down to 1280 × 720; below 1420 px wide the small group labels in the bottom bar are hidden.
@@ -373,14 +407,15 @@ The schema is created by versioned SQL scripts in `src/main/resources/db/` that 
 
   | Area | Contents |
   |---|---|
-  | 3D view (left) | Live car and road; speed, P R N D, battery % and range top-left; drive mode, ABS/TCS lights and the running 0–100 timer top-right; camera name bottom-left; toasts; keyboard help panel |
-  | Map (top right) | Proving ground drawn from the road data (north up), car marker, recent path, braking zone, 100 m scale bar; works offline |
+  | 3D view (left) | Live car, roads, city, other road users, the planned route and lidar points; speed, P R N D, battery % and range top-left; drive mode, ABS/TCS lights and the running 0–100 timer top-right; speed-limit sign; next-turn banner; collision-warning and emergency-braking banner; critical alert cards; camera name bottom-left; toasts; keyboard help panel |
+  | Navigation · Autopilot (top right) | Destination list with Go (A\* route) and ✕ cancel; destination, distance and minutes left; the next direction and what the autopilot is doing; Start autopilot / Take over; Emergency stop; maximum autopilot speed − / +; test scenarios (Pedestrian, Stopped car, Road closed, Clear) and an AEB on/off switch |
+  | Map | Roads drawn from the road data (north up), the route in blue, closed roads, obstacles, car marker, recent path, scale bar; works offline. It follows the car (650 m across); click it to see the whole area and click again to follow |
   | GRIP · g-g | The car's acceleration in g with a trail, and the road's grip limit μ as a dashed circle: the friction circle made visible |
   | TYRES | The four tyres from above, coloured by grip in use (green < 70 %, amber < 95 %, red at the limit), steering angle, force arrow, load in kN, slip %, ABS marker |
   | ENERGY | Power bar (white = drawing power, green = regenerating), power, motor rpm, battery, range, average consumption, trip, and the latest braking and 0–100 results |
   | Dock (bottom) | P R N D · Dry / Wet / Snow / Ice · ABS · TCS · View · Forces · Slow-mo · Pause · Reset · Keys |
 
-- **Keyboard:** W/↑ accelerate · S/↓ brake · A D/← → steer · Space full brake · 1–4 = P R N D · G surface · B ABS · T TCS · C camera · F forces · M slow motion · P pause · Backspace reset · H help · F11 full screen. Dock buttons never take keyboard focus, so driving keys always reach the car; every button also has a shortcut and a tooltip. If the window loses focus, all keys are released so the car doesn't keep accelerating.
+- **Keyboard:** W/↑ accelerate · S/↓ brake · A D/← → steer · Space full brake · 1–4 = P R N D · E autopilot on/off · X emergency stop · L lidar points · O touch controls · G surface · B ABS · T TCS · C camera · F forces · M slow motion · P pause · Backspace reset · H help · F11 full screen. Dock buttons never take keyboard focus, so driving keys always reach the car; every button also has a shortcut and a tooltip. If the window loses focus, all keys are released so the car doesn't keep accelerating.
 - **Touchscreen and mouse** (`TouchControls`, toggle with O or the Touch button):
   - An on-screen steering wheel: drag left or right, and it centres itself when released.
   - BRAKE and ACCEL pedals: press and hold. The fill bar shows the real pedal position, whether it comes from the screen or the keyboard.
@@ -391,12 +426,13 @@ The schema is created by versioned SQL scripts in `src/main/resources/db/` that 
   - The car body is *lofted*: 44 rounded-box cross-sections whose height and width follow smooth side and plan profiles (monotone cubic curves, so no bumps). A dark glass cabin is lofted the same way.
   - Wheels spin at their real speed, the front wheels steer with their individual Ackermann angles, and the body pitches, rolls and heaves with the suspension.
   - Tail lights brighten when braking, and reverse lights come on in R.
-  - The world is ground with a 20 m grid (so motion is visible off-road), asphalt, lane paint, a braking zone with a marker every 10 m, and light poles, each merged into one mesh.
+  - The world is ground with a 20 m grid (so motion is visible off-road), asphalt, lane paint, a braking zone with a marker every 10 m, light poles, city parks and buildings. Each layer is merged into one mesh, so the whole world is a handful of draw calls.
+  - Moving things (`DynamicLayer`): other cars, pedestrians and barriers as simple shapes, the route as a blue ribbon on the road, and up to 720 lidar hit points (L).
   - No model files.
 - **Force arrows** (F): one cyan arrow per tyre showing the force it puts on the road (1 m ≈ 2.5 kN).
 - **Cameras** (C): chase, autopilot (high behind), top-down (heading-up) and side (to watch pitch, roll and wheel spin). The chase camera trails the car's heading slightly so slides are easy to see.
 - **Accessibility:** buttons have text labels, tooltips and accessible help text, and everything can be driven from the keyboard. Status is never shown by colour alone: ABS/TCS lights change their text (e.g. "ABS OFF") and tyres show numbers. Inactive tell-tales are deliberately dim and do not meet text-contrast guidelines. Proper validation needs testing with a screen reader and an accessibility review.
-- **Developer tool** (`DevAutomation`): `-Dselfdrive.script="…"` plays a timed script (pedals, gears, surface, camera, screenshots) for checking visuals and making documentation images without a person at the keyboard.
+- **Developer tool** (`DevAutomation`): `-Dselfdrive.script="…"` plays a timed script (pedals, gears, surface, camera, destination, autopilot, scenarios, screenshots) for checking visuals and making documentation images without a person at the keyboard.
 
 ---
 
@@ -412,17 +448,21 @@ The schema is created by versioned SQL scripts in `src/main/resources/db/` that 
 
 **Build safeguards:** compiler warnings are enabled (`-Xlint:all`), and the Maven Enforcer plugin rejects Java older than 21 or Maven older than 3.9 with a readable message.
 
-**Tests** (38 so far, added with each stage):
+**Tests** (65 so far, added with each stage):
 
 | Test class | Covers |
 |---|---|
 | `TireModelTest` | Free rolling gives no force, peak = μ·load, locked-wheel sliding grip, lateral force direction, friction circle |
 | `VehicleModelTest` | Braking distance on all four surfaces vs theory, ABS vs locked wheels, 0–100, top speed, standstill in P and D, turning radius, cruise consumption, weight transfer, regen on ice, abuse test on all surfaces |
-| `SimulationTest` | The whole loop as the UI uses it: refused shift out of Park, driving off and timing 0–100, automatic braking test, reset |
+| `SimulationTest` | The whole loop as the UI uses it: refused shift out of Park, screen-tap shifting while stopped, driving with the touch controls, timing 0–100, automatic braking test, reset |
 | `GearSelectorTest` | Every gear rule |
 | `ProvingGroundTest` | Polyline offset and dashes, circuit length, start position |
+| `NavigationTest` | Road graph structure, finding the car's lane, A\* gives the same result as Dijkstra, no U-turns, a closed road forces a detour, route geometry and speeds, progress tracking |
+| `SensorTest` | Ray vs box, box overlap, lidar and radar ranges and closing speed, ultrasonic and sensor failures, a collision stops the car |
+| `SafetyControllerTest` | Warning then emergency braking as time to collision drops, predicting a crossing pedestrian, holding the brake until the path is clear, lower grip brakes earlier, PID behaviour |
+| `AutopilotIntegrationTest` | Full drives: reaches the destination, stays in lane and under the limit, stops for a pedestrian, follows a stopped car (also from low speed), re-routes around a closed road, emergency braking in manual mode, driver override and emergency stop |
 
-Planned: A\* vs Dijkstra on the same graph, PID and pure pursuit behaviour, safety-controller rules (brakes when TTC is low), permissions (a driver cannot delete users), and repository round-trips with an in-memory H2 database.
+Planned: permissions (a driver cannot delete users) and repository round-trips with an in-memory H2 database.
 
 **Packaging note:** the release build will be a self-contained app folder with an `.exe` launcher and its own Java runtime, so the target PC needs nothing installed. A classic Windows *installer* (`.msi`/setup `.exe`) would also need the free WiX Toolset on the build PC. That is optional.
 
@@ -471,8 +511,8 @@ selfdriving/
 |:---:|---|:---:|
 | 0 | Project foundation: build, package layout, Git, setup guide, theme, window | ✅ Done |
 | 1 | Physics engine, drivable 3D car, Tesla-style driver screen, keyboard driving, road tests | ✅ Done (38 tests) |
-| 2 | Road graph, A\*, sensors, autopilot, safety controller, alerts, scenarios | ⏳ Next |
-| 3 | Login, roles, passwords, H2 schema, repositories, trip history | 🔜 |
+| 2 | City, road graph, A\*, sensors, autopilot, safety controller, alerts, scenarios, touch controls | ✅ Done (65 tests) |
+| 3 | Login, roles, passwords, H2 schema, repositories, trip history | ⏳ Next |
 | 4 | Admin + Technician dashboards, OTA, diagnostics, system tests, packaging | 🔜 |
 
 ---
@@ -485,6 +525,7 @@ selfdriving/
 | **A\*** | Shortest-path algorithm that uses a distance estimate to search faster than Dijkstra |
 | **AEB** | Automatic Emergency Braking |
 | **ETA** | Estimated Time of Arrival |
+| **FCW** | Forward Collision Warning: alerts the driver before emergency braking is needed |
 | **Fixed timestep** | Physics always advances by the same small time step, for stable, repeatable results |
 | **JDBC** | Java's standard API for talking to SQL databases |
 | **Lidar** | Laser sensor that measures distances all around the car |
@@ -492,7 +533,11 @@ selfdriving/
 | **Pacejka magic formula** | Widely used empirical formula for tyre force versus slip |
 | **PID** | Proportional-Integral-Derivative controller, a classic feedback controller |
 | **Pure pursuit** | Steering method that aims at a point a set distance ahead on the path |
+| **Radar** | Radio sensor that measures the distance and closing speed of objects ahead |
+| **Road graph** | Roads as a network: junctions are nodes, each lane between two junctions is an edge |
 | **Regenerative braking** | Using the electric motor as a generator to slow the car and recharge the battery |
+| **Separating axis theorem** | Two convex shapes don't overlap if some line exists onto which their shadows don't overlap; used for collision checks |
 | **Slip angle / slip ratio** | How much a tyre slides sideways / spins faster or slower than the road; tyre forces depend on them |
 | **TTC** | Time To Collision = distance ÷ closing speed |
+| **Ultrasonic sensor** | Short-range sound sensor around the bumpers, used for parking distances |
 | **VehicleState** | The one object holding the car's current state, read by everything else |

@@ -20,7 +20,7 @@ public final class PerformanceMonitor {
     private static final double BRAKE_START_PEDAL = 0.95;
     private static final double BRAKE_START_SPEED = 5.0;
     private static final double BRAKE_ABORT_PEDAL = 0.5;
-    private static final double STOPPED_SPEED = 0.05;
+    private static final double STOPPED_SPEED = 0.25;
     private static final double ACCEL_TARGET_SPEED = 100 / 3.6;
 
     /**
@@ -73,12 +73,15 @@ public final class PerformanceMonitor {
      * @param brake        brake pedal, 0..1
      * @param gear         drive selector
      * @param surface      road surface
+     * @param driverDriving true when a person is driving (0-100 runs are only timed for the
+     *                      driver; braking tests also count emergency braking)
      * @return a message for the driver when a test finishes
      */
     public Optional<String> update(double dt, double forwardSpeed, double distance, double throttle,
-                                   double brake, Gear gear, Surface surface) {
+                                   double brake, Gear gear, Surface surface, boolean driverDriving) {
         Optional<String> message = updateBrakeTest(dt, forwardSpeed, distance, throttle, brake, surface);
-        Optional<String> accel = updateAccelerationTest(dt, forwardSpeed, throttle, brake, gear, surface);
+        Optional<String> accel = updateAccelerationTest(dt, forwardSpeed, throttle, brake,
+                driverDriving ? gear : Gear.NEUTRAL, surface);
         return message.isPresent() ? message : accel;
     }
 

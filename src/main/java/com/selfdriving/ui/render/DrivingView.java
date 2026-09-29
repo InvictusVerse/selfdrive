@@ -10,8 +10,9 @@ import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 
 import com.selfdriving.physics.VehicleParams;
+import com.selfdriving.simulation.SimulationSnapshot;
 import com.selfdriving.vehicle.VehicleState;
-import com.selfdriving.world.ProvingGround;
+import com.selfdriving.world.World;
 
 /**
  * The live 3D view: world, car, lights and camera in a resizable panel.
@@ -22,8 +23,9 @@ public final class DrivingView {
     private final SubScene subScene;
     private final CarModel car;
     private final CameraRig cameraRig = new CameraRig();
+    private final DynamicLayer dynamic = new DynamicLayer();
 
-    public DrivingView(ProvingGround ground, VehicleParams params) {
+    public DrivingView(World ground, VehicleParams params) {
         car = new CarModel(params);
         WorldModel world = new WorldModel(ground);
 
@@ -31,7 +33,7 @@ public final class DrivingView {
         DirectionalLight sun = new DirectionalLight(Color.web("#d9dee6"));
         sun.setDirection(new Point3D(-0.35, 1, 0.45));
 
-        Group root = new Group(world.node(), car.node(), ambient, sun);
+        Group root = new Group(world.node(), dynamic.node(), car.node(), ambient, sun);
         subScene = new SubScene(root, 800, 600, true, SceneAntialiasing.BALANCED);
         subScene.setFill(Materials.BACKGROUND);
         subScene.setCamera(cameraRig.camera());
@@ -55,8 +57,19 @@ public final class DrivingView {
     }
 
     /** Draws a new frame. */
-    public void update(VehicleState state, double dt) {
+    public void update(SimulationSnapshot snapshot, double dt) {
+        VehicleState state = snapshot.vehicle();
         car.update(state);
+        dynamic.update(snapshot);
         cameraRig.update(state, dt);
+    }
+
+    /** Shows or hides the lidar returns. */
+    public void setLidarVisible(boolean visible) {
+        dynamic.setLidarVisible(visible);
+    }
+
+    public boolean lidarVisible() {
+        return dynamic.lidarVisible();
     }
 }

@@ -36,7 +36,9 @@ import com.selfdriving.vehicle.DriverInput;
  * Actions: {@code throttle, brake, fullbrake, left, right} (0 or 1), {@code gear} (P/R/N/D),
  * {@code surface} (DRY/WET/SNOW/ICE), {@code camera} (CHASE/AUTOPILOT/TOP/SIDE),
  * {@code forces} (0/1), {@code abs} (0/1), {@code help} (0/1), {@code size} (window size,
- * e.g. 1280x720), {@code shot} (PNG path), {@code exit}.
+ * e.g. 1280x720), {@code destination} (place name), {@code autopilot} (0/1),
+ * {@code scenario} (pedestrian/stopped/closed/clear), {@code lidar} (0/1),
+ * {@code speed} (time scale, e.g. 4), {@code shot} (PNG path), {@code exit}.
  */
 final class DevAutomation {
 
@@ -85,6 +87,18 @@ final class DevAutomation {
                     CameraRig.Mode.valueOf(value.toUpperCase(Locale.ROOT)));
             case "forces" -> screen.drivingView().car().setForcesVisible(on);
             case "help" -> screen.setHelpVisible(on);
+            case "destination" -> simulation.world().places().stream()
+                    .filter(p -> p.name().equalsIgnoreCase(value)).findFirst()
+                    .ifPresent(place -> simulation.submit(sim -> sim.setDestination(place)));
+            case "autopilot" -> simulation.submit(on ? Simulation::engageAutopilot : Simulation::disengageAutopilot);
+            case "scenario" -> simulation.submit(switch (value) {
+                case "pedestrian" -> Simulation::scenarioPedestrian;
+                case "stopped" -> Simulation::scenarioStoppedVehicle;
+                case "closed" -> Simulation::scenarioRoadClosed;
+                default -> Simulation::clearScenarios;
+            });
+            case "lidar" -> screen.drivingView().setLidarVisible(on);
+            case "speed" -> simulation.submit(sim -> sim.setTimeScale(Double.parseDouble(value)));
             case "size" -> {
                 String[] wh = value.toLowerCase(Locale.ROOT).split("x");
                 javafx.stage.Stage stage = (javafx.stage.Stage) scene.getWindow();

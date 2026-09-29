@@ -14,7 +14,7 @@ import com.selfdriving.physics.VehicleParams;
 import com.selfdriving.simulation.Simulation;
 import com.selfdriving.simulation.SimulationLoop;
 import com.selfdriving.ui.driver.DriverScreen;
-import com.selfdriving.world.ProvingGround;
+import com.selfdriving.world.World;
 
 /**
  * JavaFX application bootstrap: builds the world, starts the simulation thread and opens the
@@ -42,10 +42,10 @@ public final class SelfDrivingApp extends Application {
 
     @Override
     public void start(Stage stage) {
-        ProvingGround ground = new ProvingGround();
-        Simulation simulation = new Simulation(VehicleParams.electricSedan(), ground.start());
+        World world = new World();
+        Simulation simulation = new Simulation(VehicleParams.electricSedan(), world);
         loop = new SimulationLoop(simulation);
-        screen = new DriverScreen(simulation, ground);
+        screen = new DriverScreen(simulation, world);
 
         // Visual bounds = the screen minus the taskbar, in the same scaled pixels JavaFX uses,
         // so Windows display scaling (125 %, 150 %...) is already taken into account.

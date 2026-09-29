@@ -34,6 +34,7 @@ public final class Database {
     public static final String DATA_DIR_PROPERTY = "selfdrive.dataDir";
 
     private final String url;
+    private Connection keeper;
 
     private Database(String url) {
         this.url = url;
@@ -50,6 +51,7 @@ public final class Database {
         String path = dir.resolve("selfdriving").toAbsolutePath().toString().replace('\\', '/');
         Database db = new Database("jdbc:h2:file:" + path + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE");
         db.migrate();
+        db.keepOpen();
         LOG.log(Level.INFO, "Database at {0}.mv.db", path);
         return db;
     }
@@ -84,6 +86,30 @@ public final class Database {
 
     public Connection connect() throws SQLException {
         return DriverManager.getConnection(url, "sa", "");
+    }
+
+    /**
+     * H2 closes a file database when its last connection closes, and opening it again is slow.
+     * One idle connection held for the app's lifetime keeps it open; {@link #close()} releases it.
+     */
+    private void keepOpen() {
+        try {
+            keeper = connect();
+        } catch (SQLException e) {
+            throw new DataException("Could not open the database", e);
+        }
+    }
+
+    /** Closes the database (the app is shutting down). */
+    public void close() {
+        if (keeper != null) {
+            try {
+                keeper.close();
+            } catch (SQLException e) {
+                LOG.log(Level.WARNING, "Closing the database failed", e);
+            }
+            keeper = null;
+        }
     }
 
     // ---- migrations ---------------------------------------------------------------------------

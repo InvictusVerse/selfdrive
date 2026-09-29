@@ -788,6 +788,16 @@
     -fx-background-color: rgba(62, 106, 225, 0.35);
 }
 
+.table-view {
+    -fx-selection-bar: rgba(62, 106, 225, 0.35);
+    -fx-selection-bar-non-focused: rgba(62, 106, 225, 0.25);
+}
+
+.table-row-cell:selected > .table-cell, .table-row-cell > .table-cell {
+    -fx-border-color: transparent;
+    -fx-background-color: transparent;
+}
+
 .table-cell {
     -fx-text-fill: -sd-text;
     -fx-font-size: 13px;
@@ -883,4 +893,115 @@
 
 .dialog-pane .button:disabled {
     -fx-opacity: 0.5;
+}
+
+/* ---- Stage 4: dashboards, charts, maintenance ---------------------------------------- */
+
+.tile-value {
+    -fx-font-size: 26px;
+    -fx-font-weight: 300;
+}
+
+.tile-value.stat-warn, .nav-summary.stat-warn { -fx-text-fill: -sd-warning; }
+.tile-value.stat-bad, .nav-summary.stat-bad { -fx-text-fill: #ff7b7f; }
+.nav-summary.stat-good { -fx-text-fill: -sd-success; }
+
+.form-ok {
+    -fx-text-fill: -sd-success;
+    -fx-font-size: 13px;
+}
+
+.setting-name {
+    -fx-font-size: 14px;
+    -fx-padding: 8 0 0 0;
+}
+
+.fault-on {
+    -fx-text-fill: #ff7b7f;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+
+.progress-bar > .track {
+    -fx-background-color: #25282e;
+    -fx-background-radius: 4;
+    -fx-background-insets: 0;
+}
+
+.progress-bar > .bar {
+    -fx-background-color: -sd-accent;
+    -fx-background-radius: 4;
+    -fx-background-insets: 0;
+    -fx-padding: 3;
+}
+
+.chart {
+    -fx-padding: 4;
+    -fx-legend-visible: true;
+}
+
+.chart-plot-background {
+    -fx-background-color: transparent;
+}
+
+.chart-vertical-grid-lines, .chart-horizontal-grid-lines {
+    -fx-stroke: #24272d;
+}
+
+.chart-alternative-row-fill {
+    -fx-fill: transparent;
+}
+
+.axis {
+    -fx-tick-label-fill: -sd-text-muted;
+    -fx-tick-label-font-size: 11px;
+}
+
+.axis-label {
+    -fx-text-fill: -sd-text-muted;
+    -fx-font-size: 11px;
+}
+
+.axis-tick-mark, .axis-minor-tick-mark {
+    -fx-stroke: #33373f;
+}
+
+.chart-legend {
+    -fx-background-color: transparent;
+}
+
+.chart-legend-item {
+    -fx-text-fill: -sd-text-muted;
+    -fx-font-size: 11px;
+}
+
+.chart-series-line {
+    -fx-stroke-width: 2px;
+}
+
+.default-color0.chart-series-line { -fx-stroke: #6f93ff; }
+.default-color1.chart-series-line { -fx-stroke: #9aa0a8; -fx-stroke-dash-array: 6 4; }
+.default-color0.chart-line-symbol { -fx-background-color: #6f93ff, #6f93ff; }
+.default-color1.chart-line-symbol { -fx-background-color: #9aa0a8, #9aa0a8; }
+.default-color0.chart-bar { -fx-bar-fill: #3e6ae1; }
+
+.text-area {
+    -fx-background-color: #0f1114;
+    -fx-background-radius: 8;
+    -fx-border-color: -sd-border;
+    -fx-border-radius: 8;
+}
+
+.rail-button {
+    -fx-padding: 6 2 5 2;
+}
+
+.telltale.service {
+    -fx-background-color: #3a2a12;
+    -fx-text-fill: -sd-warning;
+}
+
+.telltale.service.updating {
+    -fx-background-color: -sd-accent;
+    -fx-text-fill: white;
 }

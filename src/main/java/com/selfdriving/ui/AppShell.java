@@ -25,8 +25,18 @@ import javafx.scene.layout.VBox;
 import com.selfdriving.auth.Permission;
 import com.selfdriving.service.ApplicationContext;
 import com.selfdriving.service.Session;
+import com.selfdriving.ui.admin.AuditPage;
+import com.selfdriving.ui.admin.OverviewPage;
+import com.selfdriving.ui.admin.PerformancePage;
+import com.selfdriving.ui.admin.SettingsPage;
+import com.selfdriving.ui.admin.UpdatesPage;
 import com.selfdriving.ui.admin.UsersPage;
+import com.selfdriving.ui.common.AlertLogPage;
 import com.selfdriving.ui.common.ChangePasswordDialog;
+import com.selfdriving.ui.technician.DiagnosticsPage;
+import com.selfdriving.ui.technician.IssuesPage;
+import com.selfdriving.ui.technician.MaintenanceLogPage;
+import com.selfdriving.ui.technician.SystemTestsPage;
 import com.selfdriving.ui.common.Page;
 import com.selfdriving.ui.common.TripHistoryPage;
 import com.selfdriving.ui.driver.DriverScreen;
@@ -60,13 +70,34 @@ public final class AppShell {
         this.driverScreen = driverScreen;
         this.onLogout = onLogout;
 
+        entries.add(new Entry("overview", "Overview", NavIcons.DASHBOARD, s -> s.can(Permission.VIEW_PERFORMANCE),
+                shell -> new OverviewPage(shell.context, shell.session)));
         entries.add(new Entry("drive", "Drive", NavIcons.DRIVE, s -> s.can(Permission.DRIVE),
                 shell -> new DrivePage(shell.driverScreen, shell.session)));
+        entries.add(new Entry("diagnostics", "Diagnose", NavIcons.DIAGNOSTICS, s -> s.can(Permission.RUN_DIAGNOSTICS),
+                shell -> new DiagnosticsPage(shell.context, shell.session)));
+        entries.add(new Entry("issues", "Issues", NavIcons.ISSUES, s -> s.can(Permission.MANAGE_ISSUES),
+                shell -> new IssuesPage(shell.context, shell.session)));
+        entries.add(new Entry("tests", "Tests", NavIcons.TESTS, s -> s.can(Permission.RUN_SYSTEM_TESTS),
+                shell -> new SystemTestsPage(shell.context, shell.session)));
+        entries.add(new Entry("maintenance", "History", NavIcons.MAINTENANCE,
+                s -> s.can(Permission.MANAGE_ISSUES) || s.can(Permission.RUN_DIAGNOSTICS),
+                shell -> new MaintenanceLogPage(shell.context, shell.session)));
         entries.add(new Entry("trips", "Trips", NavIcons.TRIPS,
                 s -> s.can(Permission.VIEW_OWN_TRIPS) || s.can(Permission.VIEW_ALL_TRIPS),
                 shell -> new TripHistoryPage(shell.context, shell.session)));
         entries.add(new Entry("users", "Users", NavIcons.USERS, s -> s.can(Permission.MANAGE_USERS),
                 shell -> new UsersPage(shell.context, shell.session)));
+        entries.add(new Entry("settings", "Settings", NavIcons.SETTINGS, s -> s.can(Permission.EDIT_SETTINGS),
+                shell -> new SettingsPage(shell.context, shell.session)));
+        entries.add(new Entry("updates", "Updates", NavIcons.UPDATES, s -> s.can(Permission.DEPLOY_UPDATES),
+                shell -> new UpdatesPage(shell.context, shell.session)));
+        entries.add(new Entry("performance", "Stats", NavIcons.PERFORMANCE, s -> s.can(Permission.VIEW_PERFORMANCE),
+                shell -> new PerformancePage(shell.context, shell.session)));
+        entries.add(new Entry("alerts", "Alerts", NavIcons.ALERTS, s -> s.can(Permission.VIEW_ALERTS),
+                shell -> new AlertLogPage(shell.context, shell.session)));
+        entries.add(new Entry("audit", "Audit", NavIcons.AUDIT, s -> s.can(Permission.VIEW_AUDIT_LOG),
+                shell -> new AuditPage(shell.context, shell.session)));
 
         VBox rail = new VBox(4);
         rail.getStyleClass().add("rail");

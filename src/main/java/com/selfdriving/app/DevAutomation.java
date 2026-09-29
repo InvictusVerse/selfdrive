@@ -85,6 +85,17 @@ final class DevAutomation {
                 app.login().signIn(up[0], up.length > 1 ? up[1] : "");
             }
             case "logout" -> app.signOut();
+            case "fault" -> simulation.submit(sim -> sim.injectFault(com.selfdriving.diagnostics.Fault.byCode(value)));
+            case "press" -> scene.getRoot().lookupAll(".button").stream()
+                    .filter(n -> n instanceof javafx.scene.control.Button b && b.isVisible() && !b.isDisabled()
+                            && value.equalsIgnoreCase(b.getText()))
+                    .findFirst()
+                    .ifPresentOrElse(n -> ((javafx.scene.control.Button) n).fire(),
+                            () -> LOG.log(Level.WARNING, "No button: {0}", value));
+            case "row" -> scene.getRoot().lookupAll(".table-view").stream()
+                    .filter(javafx.scene.Node::isVisible).findFirst()
+                    .ifPresent(t -> ((javafx.scene.control.TableView<?>) t).getSelectionModel()
+                            .select(Integer.parseInt(value)));
             case "page" -> {
                 if (app.shell() == null || !app.shell().show(value.toLowerCase(Locale.ROOT))) {
                     LOG.log(Level.WARNING, "Page not available: {0}", value);

@@ -238,5 +238,6 @@ public final class ApplicationContext implements AutoCloseable {
         simulation.removeListener(recorder);
         updates.close();
         writer.close();
+        database.close();
     }
 }

@@ -48,6 +48,8 @@ final class HudOverlay {
     private final Label mode = new Label("MANUAL");
     private final Label absLight = new Label("ABS");
     private final Label tcsLight = new Label("TCS");
+    /** Service warning (a fault is present) or "UPDATING" during a software install. */
+    private final Label serviceLight = new Label("SERVICE");
     private final Label timer = new Label();
     private final Label autopilotStatus = new Label();
     private final VBox criticalAlerts = new VBox(6);
@@ -151,10 +153,13 @@ final class HudOverlay {
         clock.setAccessibleText("Clock and outside temperature. Click to switch between day and night.");
         javafx.scene.control.Tooltip.install(clock, new javafx.scene.control.Tooltip("Click: day / night"));
         clock.setOnMouseClicked(e -> lightControls.toggleNight());
-        for (Label chip : List.of(timer, absLight, tcsLight, clock, mode)) {
+        serviceLight.getStyleClass().addAll("telltale", "service");
+        serviceLight.setVisible(false);
+        serviceLight.managedProperty().bind(serviceLight.visibleProperty());
+        for (Label chip : List.of(timer, serviceLight, absLight, tcsLight, clock, mode)) {
             chip.setMinWidth(Region.USE_PREF_SIZE); // the turn banner gives way first
         }
-        HBox chips = new HBox(8, timer, absLight, tcsLight, clock, mode);
+        HBox chips = new HBox(8, timer, serviceLight, absLight, tcsLight, clock, mode);
         chips.setAlignment(Pos.TOP_RIGHT);
         chips.setPickOnBounds(false);
         autopilotStatus.getStyleClass().add("autopilot-status");
@@ -273,6 +278,13 @@ final class HudOverlay {
 
         telltale(absLight, "ABS", s.absEnabled(), s.absActive());
         telltale(tcsLight, "TCS", s.tractionEnabled(), s.tractionActive());
+        boolean service = !snapshot.faults().isEmpty() || snapshot.softwareUpdating();
+        serviceLight.setVisible(service);
+        if (service) {
+            serviceLight.setText(snapshot.softwareUpdating() ? "UPDATING" : "SERVICE  " + snapshot.faults().stream()
+                    .map(com.selfdriving.diagnostics.Fault::code).sorted().reduce((a, b) -> a + " " + b).orElse(""));
+            setClass(serviceLight, "updating", snapshot.softwareUpdating());
+        }
 
         boolean timing = snapshot.accelTestRunning();
         timer.setVisible(timing);

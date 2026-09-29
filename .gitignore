@@ -1,0 +1,28 @@
+# Build output
+target/
+out/
+dist/
+
+# IDEs
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+.settings/
+.project
+.classpath
+
+# Private project notebook (discussions, audits, reports): kept on this PC only
+project-docs/
+
+# Runtime data (H2 database files, logs)
+data/
+logs/
+*.log
+*.mv.db
+*.trace.db
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

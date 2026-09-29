@@ -1,0 +1,45 @@
+/*
+ * Global dark theme (Tesla-style): near-black surfaces, soft greys, one accent blue.
+ */
+
+.root {
+    -sd-bg: #0b0c0e;
+    -sd-surface: #16181c;
+    -sd-surface-raised: #1f2228;
+    -sd-border: #2a2e35;
+    -sd-text: #f2f3f5;
+    -sd-text-muted: #9aa0a8;
+    -sd-accent: #3e6ae1;
+    -sd-success: #2ecc71;
+    -sd-warning: #f5a623;
+    -sd-danger: #e5484d;
+
+    -fx-font-family: "Segoe UI", "Inter", sans-serif;
+    -fx-font-size: 14px;
+    -fx-text-fill: -sd-text;
+    -fx-background-color: -sd-bg;
+}
+
+.app-root {
+    -fx-background-color: radial-gradient(center 50% 40%, radius 80%, #1a1d23 0%, -sd-bg 70%);
+}
+
+.app-title {
+    -fx-font-size: 40px;
+    -fx-font-weight: 300;
+    -fx-text-fill: -sd-text;
+}
+
+.app-subtitle {
+    -fx-font-size: 16px;
+    -fx-text-fill: -sd-text-muted;
+}
+
+.chip {
+    -fx-padding: 6 16 6 16;
+    -fx-background-color: -sd-surface-raised;
+    -fx-background-radius: 999;
+    -fx-border-color: -sd-border;
+    -fx-border-radius: 999;
+    -fx-text-fill: -sd-text;
+}

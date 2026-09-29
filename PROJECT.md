@@ -133,69 +133,93 @@ The code is layered. Each layer only talks to the layer below it.
 
 ### 5.1 Simulation loop and threads
 
-📐 *Designed (Stage 1)*
+✅ *Built* (`simulation.SimulationLoop`, `simulation.Simulation`) · database worker 📐 *Stage 3*
 
 | Thread | Rate | Job |
 |---|---|---|
-| **Simulation thread** | 120 Hz fixed (Δt = 1/120 s ≈ 8.3 ms) | Update world → sensors → navigation → autopilot → safety → physics → publish snapshot |
-| **JavaFX UI thread** | Screen refresh (~60 fps) via `AnimationTimer` | Read the latest snapshot, update the 3D scene and gauges |
-| **Database worker** | On demand | Save trips, alerts, faults and logs without blocking |
+| **Simulation thread** | 120 Hz fixed (Δt = 1/120 s ≈ 8.3 ms), physics sub-stepped 8× (960 Hz) | Run queued commands → smooth driver inputs → physics → road tests → publish snapshot |
+| **JavaFX UI thread** | Screen refresh (~60 fps) via `AnimationTimer` | Read the latest snapshot, update the 3D scene, gauges, map and telemetry |
+| **Database worker** | On demand (Stage 3) | Save trips, alerts, faults and logs without blocking |
 
-A **fixed timestep** makes the physics stable and repeatable: the same inputs always produce the same result, whatever the frame rate. The loop uses an *accumulator*: real elapsed time is added up and consumed in exact 1/120 s steps.
+A **fixed timestep** makes the physics stable and repeatable: the same inputs always produce the same result, whatever the frame rate. Each tick is scheduled against the clock. On Windows, `LockSupport.parkNanos` rounds up to about 15.6 ms and `Thread.sleep(1)` is accurate to about 2 ms, so the loop sleeps in 1 ms steps and spins for the final ~2 ms. This costs about half a CPU core in total and keeps ticks even. If the loop falls far behind (e.g. under a debugger), it resynchronises instead of trying to catch up.
 
-The simulation publishes an **immutable snapshot** of `VehicleState` after each step. The UI reads the newest one, so the two threads never read and write the same object at the same time.
+**How threads talk to each other** (no locks in the hot path):
 
-Simulation speed (×0.25 to ×4) and pause are Admin settings. Pause and slow motion are handy for presentations and for studying the physics moment by moment.
+| Direction | Mechanism |
+|---|---|
+| UI → simulation, held keys | `DriverInput`: `volatile` booleans |
+| UI → simulation, commands (gear, surface, ABS, reset, pause…) | `Simulation.submit(Consumer<Simulation>)`, a `ConcurrentLinkedQueue` run on the simulation thread before the next tick |
+| Simulation → UI, state | An immutable `SimulationSnapshot` (with `VehicleState`) swapped into an `AtomicReference` after every tick |
+| Simulation → UI, messages | A queue of short notifications shown as toasts (e.g. "Press the brake to shift out of Park") |
+
+Pause and slow motion (×0.25) are on the driver display now and will become Admin settings in Stage 4. Slow motion shortens the time step instead of skipping ticks, so it stays smooth.
 
 ### 5.2 Vehicle physics
 
-📐 *Designed (Stage 1)*
+✅ *Built* (`physics` package) · verified by 25 JUnit tests
 
-The car is a **rigid body** moving on a flat plane (x, y, heading ψ), with four wheels, each with its own tyre, suspension and brake. Forces are summed every step and integrated with **semi-implicit Euler** (velocity first, then position), which is simple and stable at 120 Hz.
+The car is a **rigid body** on a flat plane (position x, y and heading ψ, velocities v<sub>x</sub>, v<sub>y</sub> in the car's own frame and yaw rate r), with four wheels, each with its own tyre, spin, brake, suspension corner and load. It is integrated with **semi-implicit Euler** (velocities first, then positions) at 960 Hz. Equations of motion in the rotating car frame:
 
-**Starting parameters** (similar to a mid-size electric sedan, tuned in Stage 1):
+- *m (v̇<sub>x</sub> − r·v<sub>y</sub>) = ΣF<sub>x</sub>*
+- *m (v̇<sub>y</sub> + r·v<sub>x</sub>) = ΣF<sub>y</sub>*
+- *I<sub>z</sub> ṙ = Σ (x<sub>i</sub>·F<sub>y,i</sub> − y<sub>i</sub>·F<sub>x,i</sub>)*
+
+**Car parameters** (`VehicleParams.electricSedan()`, similar to a mid-size dual-motor EV sedan):
 
 | Parameter | Value |
 |---|---|
-| Mass *m* | 1 850 kg |
-| Wheelbase *L* | 2.875 m |
-| Track width | 1.58 m |
-| Centre-of-gravity height *h* | 0.45 m |
-| Wheel radius *R* | 0.34 m |
-| Drag coefficient *C<sub>d</sub>* · frontal area *A* | 0.23 · 2.22 m² |
-| Rolling resistance *C<sub>rr</sub>* | 0.010 |
-| Battery | 75 kWh |
-| Motor | 300 kW peak, 420 N·m |
-| Max steering angle | ±35° |
+| Mass *m* · yaw inertia *I<sub>z</sub>* | 1 850 kg · 2 900 kg·m² |
+| Wheelbase *L* · weight split | 2.875 m · 47 % front / 53 % rear |
+| Track width · CG height *h* | 1.58 m · 0.46 m |
+| Wheel radius *R* · wheel inertia | 0.34 m · 1.4 kg·m² |
+| Drag *C<sub>d</sub>* · frontal area *A* · rolling resistance *C<sub>rr</sub>* | 0.23 · 2.22 m² · 0.010 |
+| Motor | 300 kW, 460 N·m, 9.0:1 reduction, 16 000 rpm limit, 40/60 front/rear torque split |
+| Regeneration | up to 75 kW / 200 N·m |
+| Brakes (per wheel, full pedal) | 2 600 N·m front, 1 500 N·m rear (enough to lock all four wheels) |
+| Suspension (per corner) | 35 kN/m spring, 3.8 kN·s/m damper; anti-roll bars 45 / 25 kN·m/rad |
+| Battery · auxiliary load | 75 kWh · 350 W |
+| Max road-wheel angle | ±32° (Ackermann geometry per front wheel) |
 
 **Forces modelled**
 
 | Effect | Model |
 |---|---|
-| **Tyre grip** | Pacejka *magic formula*: *F = D·sin(C·atan(B·x − E·(B·x − atan(B·x))))*, where *x* is slip, *D = μ·F<sub>z</sub>* is peak force |
-| Lateral slip (cornering) | Slip angle *α = atan((v<sub>y</sub> + a·r) / v<sub>x</sub>) − δ* (front; rear uses −b) |
-| Longitudinal slip (accel/brake) | Slip ratio *κ = (ω·R − v<sub>x</sub>) / \|v<sub>x</sub>\|* |
-| Combined slip | Friction ellipse: total tyre force cannot exceed *μ·F<sub>z</sub>*, so braking in a corner reduces grip |
-| **Weight transfer** | Per-wheel spring-damper *F = k·x + c·ẋ*; braking pitches the car forward and loads the front tyres, cornering loads the outer tyres |
-| **Electric motor** | Constant torque up to base speed, then constant power: *T = min(T<sub>max</sub>, P<sub>max</sub> / ω)* |
-| **Regenerative braking** | Lifting off the accelerator makes the motor brake the car and recharge the battery |
-| **Friction brakes** | Brake torque per wheel with front/rear bias |
-| **ABS** | If a wheel's slip ratio goes below about −0.15 (locking), brake pressure is released and re-applied |
-| **Traction control** | If a driven wheel spins (slip ratio > about 0.15), motor torque is cut |
-| **Air drag** | *F = ½·ρ·C<sub>d</sub>·A·v²* with air density ρ = 1.225 kg/m³ |
-| **Rolling resistance** | *F = C<sub>rr</sub>·m·g* |
-| **Battery** | Electrical power = mechanical power ÷ efficiency; state of charge and remaining range update continuously |
+| **Tyre grip** | Pacejka *magic formula*: *F = F<sub>z</sub>·D·sin(C·atan(B·s − E·(B·s − atan(B·s))))* |
+| Combined slip | *s* = contact-patch sliding speed ÷ max(wheel speed, rim speed, 1 m/s). One number covers braking, accelerating and cornering, and the force always points against the slide, so grip used for braking is not available for cornering (friction circle). A locked wheel (*s* = 1) keeps about 91 % of peak grip on a dry road |
+| Slip ratio · slip angle | *κ = (ω·R − v) / \|v\|* · *α = atan(v<sub>lat</sub> / \|v<sub>long</sub>\|)* (shown on the display, used by ABS/TCS) |
+| **Wheel spin** | *I·ω̇ = T<sub>drive</sub> − T<sub>brake</sub> − F<sub>x</sub>·R*. Tyres are very stiff compared with a wheel's inertia, so this is solved **implicitly**: the tyre force is linearised around the current spin, which keeps it stable without faking the physics. Brakes are applied last and can hold a wheel at zero (locked) |
+| **Weight transfer** | Sprung body with heave, pitch and roll; each corner is a spring-damper *F = k·x + c·ẋ* plus anti-roll bars. Braking pitches the nose down and loads the front tyres; cornering rolls the body and loads the outside tyres. Loads feed straight back into tyre grip |
+| **Electric motor** | Constant torque up to base speed, then constant power *T = min(T<sub>max</sub>, P<sub>max</sub> / ω)*, fading out at the rpm limit (sets the top speed) |
+| **Regenerative braking** | With the accelerator released in Drive the motor brakes the car and recharges the battery, fading out at walking pace. A slip limiter (the same logic as traction control) keeps regen from locking the wheels on ice |
+| **ABS** | Per wheel: when the slip ratio passes 1.3 × the tyre's peak slip, brake pressure is released; below 0.8 × it is re-applied. The wheel cycles around peak grip |
+| **Traction control** | Cuts motor torque when a wheel spins past 1.3 × peak slip; restores it gradually |
+| **Air drag** · **rolling resistance** | *F = ½·ρ·C<sub>d</sub>·A·v²* (ρ = 1.225 kg/m³) · *F = C<sub>rr</sub>·m·g* |
+| **Battery** | Electrical power = motor power ÷ 0.90 when driving, × 0.75 when regenerating, plus auxiliary load. State of charge, average consumption and range update continuously |
 
-**Road surfaces** (Admin setting or demo toggle) change the friction coefficient μ:
+**Road surfaces** change the magic-formula coefficients (published simplified values):
 
-| Surface | μ (approx.) |
-|---|---|
-| Dry asphalt | 1.0 |
-| Wet asphalt | 0.7 |
-| Snow | 0.3 |
-| Ice | 0.1 |
+| Surface | B | C | D (= μ) | E | Peak slip |
+|---|---|---|---|---|---|
+| Dry asphalt | 10 | 1.9 | 1.00 | 0.97 | 18 % |
+| Wet asphalt | 12 | 2.3 | 0.82 | 1.0 | 9 % |
+| Snow | 5 | 2.0 | 0.30 | 1.0 | 31 % |
+| Ice | 4 | 2.0 | 0.10 | 1.0 | 39 % |
 
-**How we prove it is real physics:** results are compared with textbook formulas in JUnit tests, and the same checks can be reproduced live in the app. For example, braking distance from 100 km/h on a dry road is *d = v² / (2·μ·g)* = 27.8² / (2 × 1.0 × 9.81) ≈ **39 m**. Other checks: top speed where drag equals motor force, 0–100 km/h time, and battery energy used over a trip.
+**How we prove it is real physics.** The JUnit tests drive the model and compare it with textbook formulas and real-world figures. Current results:
+
+| Check | Expected | Measured |
+|---|---|---|
+| Braking 100 → 0 km/h, dry, ABS | *d = v² / (2·(μ + C<sub>rr</sub>)·g)* = 38.9 m | 39.4 m |
+| Braking 100 → 0 km/h, wet · snow · ice | 47.4 m · 126.9 m · 357.5 m | 47.9 m · 124.7 m · 343.9 m |
+| ABS off (wheels lock) | longer than with ABS | 42.1 m vs 39.5 m |
+| 0 → 100 km/h | 3.8–5.5 s for this class of car | 4.49 s |
+| Top speed | limited by motor rpm ≈ 228 km/h | 223.7 km/h |
+| Turning radius at walking pace, 15° steer | geometry √((L / tan δ)² + b²) = 10.81 m | 10.83 m |
+| Cruise at 100 km/h | 100–220 Wh/km | 135 Wh/km |
+| Braking / cornering | front / outside tyres loaded, nose down / body rolls out | ✅ |
+| Abuse test (spins, slides, reverse, every surface) | no invalid numbers, nothing runs away | ✅ |
+
+Rolling resistance is added to μ in the braking formula. On dry roads that changes the result by 1 %, but on ice (μ = 0.1) it is a tenth of the grip, so leaving it out would give the wrong answer. The same measurement runs live in the app: brake fully (Space) from speed and the display shows measured vs theoretical distance.
 
 ### 5.3 Sensors
 
@@ -250,7 +274,7 @@ Sits between the autopilot or driver and the physics, and can overrule both.
 
 ### 5.7 Drive modes and override
 
-📐 *Designed (Stages 1–2)*
+✅ *Built:* gears and manual driving (`vehicle` package) · 📐 *Designed (Stage 2):* autonomous mode, override, emergency stop
 
 ```text
       ┌────────────┐  driver takes over   ┌──────────────────┐
@@ -265,8 +289,8 @@ Sits between the autopilot or driver and the physics, and can overrule both.
                        └────────────────┘
 ```
 
-- **Gears:** P, R, N, D. Changing between D and R needs the car (almost) stopped and the brake pressed, like a real car.
-- **Manual driving:** keyboard (W/S or ↑/↓ accelerate and brake, A/D or ←/→ steer), with smooth input ramps so keys feel like pedals.
+- **Gears** (`GearSelector`): P, R, N, D. Leaving Park needs the brake pressed; Park needs the car stopped (< 0.5 m/s); Drive ↔ Reverse needs walking pace (< 1.5 m/s); Neutral is always allowed. A refused shift shows the reason on screen.
+- **Manual driving** (`DriverControls`): keys are turned into smooth pedal and steering positions. The accelerator ramps up in 0.5 s, the brake in 0.6 s (Space: full brake in 0.08 s), and the steering turns at a limited rate and self-centres. Steering is speed-sensitive: at speed a full key press asks for less wheel angle, sized for 12 m/s² of lateral acceleration. That's a little above dry-road grip, so the car can still be pushed into a slide.
 - **Taking over:** touching brake or steering, or pressing the override button, instantly switches to manual. The driver dashboard always shows the current mode.
 
 ### 5.8 Diagnostics, faults and system tests
@@ -341,19 +365,32 @@ The schema is created by versioned SQL scripts in `src/main/resources/db/` that 
 
 ### 5.13 User interface and 3D
 
-📐 *Designed (Stages 1–4)* · ✅ *Theme and window shell built*
+✅ *Built:* driver display, 3D car and proving ground (`ui.driver`, `ui.render`, `world`) · 📐 *Designed:* login (Stage 3), Admin and Technician dashboards (Stage 4), city, route and obstacles (Stage 2)
 
-- **Look:** dark Tesla-style theme (`theme.css`): near-black background, soft grey panels, one accent blue, green, amber and red for status, large touch-friendly controls, smooth transitions.
-- **Login:** username + password, then routed to the right dashboard for the role.
-- **Driver display** (like the Tesla centre screen):
-  - *Left:* 3D Autopilot view: our car from behind, lane lines, detected cars and pedestrians as simple shapes, the planned path.
-  - *Right:* top-down city map with the route, ETA and turn list.
-  - *Top bar:* speed, gear, battery %, range, drive mode.
-  - *Bottom:* override, emergency stop, lights, road surface, alerts.
-- **3D models are generated in code:** the car body is a custom `TriangleMesh` shaped like a modern sedan, plus wheels that spin and steer, brake lights that turn on when braking, and headlights. Buildings, roads and obstacles are generated from the road graph. No Blender or model files.
-- **Physics debug overlay** (toggle): tyre force arrows, slip values, live graphs of speed and forces. This is the visual proof that the physics is real.
-- **Cameras:** chase, top-down, driver view, free orbit.
-- **Accessibility:** every control has a keyboard shortcut and focus outline, text meets contrast guidelines on the dark theme, and status is never shown by colour alone (icons + text too).
+- **Look:** dark Tesla-style theme (`theme.css`, with matching canvas colours in `ui.Palette`): near-black background, soft grey cards, one accent blue, and green/amber/red for status.
+- **Driver display** (`DriverScreen`), laid out like an EV centre screen:
+
+  | Area | Contents |
+  |---|---|
+  | 3D view (left) | Live car and road; speed, P R N D, battery % and range top-left; drive mode, ABS/TCS lights and the running 0–100 timer top-right; camera name bottom-left; toasts; keyboard help panel |
+  | Map (top right) | Proving ground drawn from the road data (north up), car marker, recent path, braking zone, 100 m scale bar; works offline |
+  | GRIP · g-g | The car's acceleration in g with a trail, and the road's grip limit μ as a dashed circle: the friction circle made visible |
+  | TYRES | The four tyres from above, coloured by grip in use (green < 70 %, amber < 95 %, red at the limit), steering angle, force arrow, load in kN, slip %, ABS marker |
+  | ENERGY | Power bar (white = drawing power, green = regenerating), power, motor rpm, battery, range, average consumption, trip, and the latest braking and 0–100 results |
+  | Dock (bottom) | P R N D · Dry / Wet / Snow / Ice · ABS · TCS · View · Forces · Slow-mo · Pause · Reset · Keys |
+
+- **Keyboard:** W/↑ accelerate · S/↓ brake · A D/← → steer · Space full brake · 1–4 = P R N D · G surface · B ABS · T TCS · C camera · F forces · M slow motion · P pause · Backspace reset · H help. Dock buttons never take keyboard focus, so driving keys always reach the car; every button also has a shortcut and a tooltip. If the window loses focus, all keys are released so the car doesn't keep accelerating.
+- **Road tests run automatically** (`PerformanceMonitor`). Pressing the brake fully above 18 km/h starts a braking test that ends when the car stops, and shows *measured vs v²/(2(μ+C<sub>rr</sub>)g)*. Pulling away from a stop at full throttle in Drive times 0–100 km/h. Lifting off or braking cancels the run.
+- **3D models generated in code** (`CarModel`, `WorldModel`, `MeshFactory`):
+  - The car body is *lofted*: 44 rounded-box cross-sections whose height and width follow smooth side and plan profiles (monotone cubic curves, so no bumps). A dark glass cabin is lofted the same way.
+  - Wheels spin at their real speed, the front wheels steer with their individual Ackermann angles, and the body pitches, rolls and heaves with the suspension.
+  - Tail lights brighten when braking, and reverse lights come on in R.
+  - The world is ground with a 20 m grid (so motion is visible off-road), asphalt, lane paint, a braking zone with a marker every 10 m, and light poles, each merged into one mesh.
+  - No model files.
+- **Force arrows** (F): one cyan arrow per tyre showing the force it puts on the road (1 m ≈ 2.5 kN).
+- **Cameras** (C): chase, autopilot (high behind), top-down (heading-up) and side (to watch pitch, roll and wheel spin). The chase camera trails the car's heading slightly so slides are easy to see.
+- **Accessibility:** buttons have text labels, tooltips and accessible help text, and everything can be driven from the keyboard. Status is never shown by colour alone: ABS/TCS lights change their text (e.g. "ABS OFF") and tyres show numbers. Inactive tell-tales are deliberately dim and do not meet text-contrast guidelines. Proper validation needs testing with a screen reader and an accessibility review.
+- **Developer tool** (`DevAutomation`): `-Dselfdrive.script="…"` plays a timed script (pedals, gears, surface, camera, screenshots) for checking visuals and making documentation images without a person at the keyboard.
 
 ---
 
@@ -369,7 +406,17 @@ The schema is created by versioned SQL scripts in `src/main/resources/db/` that 
 
 **Build safeguards:** compiler warnings are enabled (`-Xlint:all`), and the Maven Enforcer plugin rejects Java older than 21 or Maven older than 3.9 with a readable message.
 
-**Tests** (added with each stage): physics against textbook formulas (braking distance, top speed, energy use), A\* vs Dijkstra on the same graph, PID and pure pursuit behaviour, safety-controller rules (brakes when TTC is low), permissions (a driver cannot delete users), and repository round-trips with an in-memory H2 database.
+**Tests** (38 so far, added with each stage):
+
+| Test class | Covers |
+|---|---|
+| `TireModelTest` | Free rolling gives no force, peak = μ·load, locked-wheel sliding grip, lateral force direction, friction circle |
+| `VehicleModelTest` | Braking distance on all four surfaces vs theory, ABS vs locked wheels, 0–100, top speed, standstill in P and D, turning radius, cruise consumption, weight transfer, regen on ice, abuse test on all surfaces |
+| `SimulationTest` | The whole loop as the UI uses it: refused shift out of Park, driving off and timing 0–100, automatic braking test, reset |
+| `GearSelectorTest` | Every gear rule |
+| `ProvingGroundTest` | Polyline offset and dashes, circuit length, start position |
+
+Planned: A\* vs Dijkstra on the same graph, PID and pure pursuit behaviour, safety-controller rules (brakes when TTC is low), permissions (a driver cannot delete users), and repository round-trips with an in-memory H2 database.
 
 **Packaging note:** the release build will be a self-contained app folder with an `.exe` launcher and its own Java runtime, so the target PC needs nothing installed. A classic Windows *installer* (`.msi`/setup `.exe`) would also need the free WiX Toolset on the build PC. That is optional.
 
@@ -417,8 +464,8 @@ selfdriving/
 | Stage | Scope | Status |
 |:---:|---|:---:|
 | 0 | Project foundation: build, package layout, Git, setup guide, theme, window | ✅ Done |
-| 1 | Physics engine, drivable 3D car, Tesla-style driver screen, keyboard driving | ⏳ Next |
-| 2 | Road graph, A\*, sensors, autopilot, safety controller, alerts, scenarios | 🔜 |
+| 1 | Physics engine, drivable 3D car, Tesla-style driver screen, keyboard driving, road tests | ✅ Done (38 tests) |
+| 2 | Road graph, A\*, sensors, autopilot, safety controller, alerts, scenarios | ⏳ Next |
 | 3 | Login, roles, passwords, H2 schema, repositories, trip history | 🔜 |
 | 4 | Admin + Technician dashboards, OTA, diagnostics, system tests, packaging | 🔜 |
 

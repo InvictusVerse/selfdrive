@@ -150,3 +150,5 @@ git push
 | IntelliJ shows red imports | Maven panel (right side) → 🔄 *Reload All Maven Projects* |
 | `LF will be replaced by CRLF` warnings in Git | Harmless. Line endings are handled by `.gitattributes` |
 | `scripts\check-environment.ps1` is blocked | Run the `.cmd` version instead. It bypasses the execution policy for that script only |
+| `WARNING: A terminally deprecated method in sun.misc.Unsafe has been called` | Harmless. JavaFX 21 prints it when running on JDK 24 or newer. It does not appear on JDK 21 |
+| The car does not react to keys | Click inside the window first so it has keyboard focus |

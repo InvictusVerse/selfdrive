@@ -6,7 +6,7 @@
 
     <groupId>com.selfdriving</groupId>
     <artifactId>selfdrive</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.0-SNAPSHOT</version>
     <name>Self-Driving Car Control System</name>
     <description>Java desktop self-driving car control system with real vehicle physics.</description>
 

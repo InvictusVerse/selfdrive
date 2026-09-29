@@ -28,6 +28,8 @@ Maven does not need to be installed. The wrapper downloads it on first use.
 .\mvnw.cmd javafx:run
 ```
 
+**Drive off:** hold **S** (brake), press **4** (Drive), then hold **W**. Steer with **A / D** or the arrow keys, and press **Space** for a full-brake test. Press **H** for all keys.
+
 In IntelliJ IDEA, open the folder and choose **Run App** from the run dropdown. The shared configurations in `.run/` load automatically.
 
 ## Build and test

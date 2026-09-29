@@ -1,0 +1,92 @@
+package com.selfdriving.simulation;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import com.selfdriving.physics.Gear;
+import com.selfdriving.physics.VehicleParams;
+import com.selfdriving.world.Pose;
+
+/** Drives the whole simulation the way the UI does: keys, commands and snapshots. */
+class SimulationTest {
+
+    private static final double TICK = SimulationLoop.TICK_SECONDS;
+
+    private final Simulation sim = new Simulation(VehicleParams.electricSedan(), new Pose(0, 0, 0));
+
+    private void run(double seconds) {
+        int ticks = (int) Math.round(seconds / TICK);
+        for (int i = 0; i < ticks; i++) {
+            sim.processCommands();
+            sim.step(TICK);
+        }
+    }
+
+    private void shiftToDrive() {
+        sim.driverInput().setBrake(true);
+        run(0.5);
+        sim.submit(s -> s.requestGear(Gear.DRIVE));
+        run(0.1);
+        sim.driverInput().setBrake(false);
+        run(0.5);
+    }
+
+    @Test
+    @DisplayName("Shifting out of Park without the brake is refused with a message")
+    void shiftWithoutBrakeIsRefused() {
+        sim.submit(s -> s.requestGear(Gear.DRIVE));
+        run(0.1);
+        assertEquals(Gear.PARK, sim.latest().vehicle().gear());
+        assertNotNull(sim.pollNotification());
+    }
+
+    @Test
+    @DisplayName("Holding the accelerator in Drive accelerates the car and times 0-100 km/h")
+    void accelerateAndTime() {
+        shiftToDrive();
+        assertEquals(Gear.DRIVE, sim.latest().vehicle().gear());
+
+        sim.driverInput().setAccelerate(true);
+        run(8);
+        SimulationSnapshot snapshot = sim.latest();
+        assertTrue(snapshot.vehicle().speedKmh() > 100, "speed " + snapshot.vehicle().speedKmh());
+        assertNotNull(snapshot.lastAccelTest(), "0-100 run recorded");
+        double seconds = snapshot.lastAccelTest().seconds();
+        assertTrue(seconds > 4 && seconds < 6, "0-100 incl. pedal ramp: " + seconds);
+    }
+
+    @Test
+    @DisplayName("A full stop from speed is recorded as a braking test")
+    void brakingTestIsRecorded() {
+        shiftToDrive();
+        sim.driverInput().setAccelerate(true);
+        run(6);
+        sim.driverInput().setAccelerate(false);
+        assertNull(sim.latest().lastBrakeTest());
+
+        sim.driverInput().setFullBrake(true);
+        run(6);
+        PerformanceMonitor.BrakeTest test = sim.latest().lastBrakeTest();
+        assertNotNull(test);
+        assertTrue(test.distance() > test.theoreticalDistance() * 0.9, "distance " + test.distance());
+        assertTrue(test.distance() < test.theoreticalDistance() * 1.35, "distance " + test.distance());
+    }
+
+    @Test
+    @DisplayName("Reset puts the car back at the start in Park")
+    void resetReturnsToStart() {
+        shiftToDrive();
+        sim.driverInput().setAccelerate(true);
+        run(3);
+        sim.driverInput().setAccelerate(false);
+        sim.submit(Simulation::resetCar);
+        run(0.1);
+        assertEquals(0, sim.latest().vehicle().x(), 1e-6);
+        assertEquals(Gear.PARK, sim.latest().vehicle().gear());
+    }
+}

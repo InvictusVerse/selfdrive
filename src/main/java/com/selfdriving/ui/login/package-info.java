@@ -1,4 +1,4 @@
 /**
- * Login screen and role-based routing to the correct dashboard.
+ * The sign-in screen.
  */
 package com.selfdriving.ui.login;

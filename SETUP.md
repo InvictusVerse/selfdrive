@@ -22,7 +22,8 @@ This guide takes a fresh Windows PC from nothing to a running app. Setup takes a
 | Maven | The included wrapper (`mvnw.cmd`) downloads the correct version automatically |
 | JavaFX SDK | Maven downloads JavaFX as a normal library |
 | MySQL / any database server | H2 is embedded inside the app |
-| Blender / 3D models | The car and city are generated in Java code |
+| Blender / 3D models | The car and city are generated in Java code (a glTF car model is optional) |
+| Internet at run time | The city map is bundled with the app |
 | Scene Builder | The UI is written in Java code |
 
 ### Exact versions the project uses
@@ -115,6 +116,28 @@ These shared run configurations come with the project (`.run/` folder):
 
 Open the folder, accept the suggested Java extensions, then run `.\mvnw.cmd javafx:run` in the terminal.
 
+### Signing in
+
+The first start creates the database (`data\selfdriving.mv.db` in the project folder) and three demo accounts, which the sign-in screen lists until their passwords are changed:
+
+| Role | Username | Password |
+|---|---|---|
+| Admin | `admin` | `Admin@2026` |
+| Driver | `driver` | `Driver@2026` |
+| Maintenance Technician | `tech` | `Tech@2026` |
+
+To start again from an empty database, close the app and delete the `data` folder.
+
+---
+
+## 5a. Build the Windows app (optional)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows\package.ps1 -SkipTests
+```
+
+This makes `dist\SelfDrivingCarControlSystem\` (about 160 MB) with `SelfDrivingCarControlSystem.exe` and its own Java runtime. Copy the whole folder to any Windows PC and double-click the `.exe`; nothing needs installing there. The packaged app keeps its data in `%LOCALAPPDATA%\SelfDrive\data`. The car model in `assets\models\car` is included if one is installed.
+
 ---
 
 ## 6. Push changes without login pop-ups (optional)
@@ -151,4 +174,7 @@ git push
 | `LF will be replaced by CRLF` warnings in Git | Harmless. Line endings are handled by `.gitattributes` |
 | `scripts\check-environment.ps1` is blocked | Run the `.cmd` version instead. It bypasses the execution policy for that script only |
 | `WARNING: A terminally deprecated method in sun.misc.Unsafe has been called` | Harmless. JavaFX 21 prints it when running on JDK 24 or newer. It does not appear on JDK 21 |
-| The car does not react to keys | Click inside the window first so it has keyboard focus |
+| The car does not react to keys | Open the **Drive** page and click inside the window so it has keyboard focus. Keys do nothing on other pages or while typing in a field |
+| `Cannot start: the database could not be opened` | Another copy of the app is already running, and only one can use the data folder at a time. Close it first |
+| Forgotten password | An admin can reset it on the Users page. If the only admin password is lost, close the app and delete the `data` folder (this removes all saved data) |
+| `jpackage not found` when packaging | Use a full JDK 21 or newer (not a JRE) and set `JAVA_HOME` to it |

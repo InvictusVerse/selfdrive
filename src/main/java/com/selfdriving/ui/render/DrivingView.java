@@ -100,9 +100,26 @@ public final class DrivingView {
         loader.start();
     }
 
+    /**
+     * The model folder next to where the app was started; for the packaged app, the one it was
+     * packaged with (the launcher may be started from anywhere).
+     */
+    private static Path defaultFolder() {
+        String launcher = System.getProperty("jpackage.app-path");
+        if (launcher != null && !Files.isDirectory(DEFAULT_MODEL_FOLDER)) {
+            Path parent = Path.of(launcher).toAbsolutePath().getParent();
+            if (parent != null) {
+                // jpackage puts extra content next to the launcher on Windows, under app/ elsewhere.
+                Path beside = parent.resolve(DEFAULT_MODEL_FOLDER);
+                return Files.isDirectory(beside) ? beside : parent.resolve("app").resolve(DEFAULT_MODEL_FOLDER);
+            }
+        }
+        return DEFAULT_MODEL_FOLDER;
+    }
+
     private static Path modelFile() {
         String configured = System.getProperty(MODEL_PROPERTY);
-        Path location = configured == null || configured.isBlank() ? DEFAULT_MODEL_FOLDER : Path.of(configured);
+        Path location = configured == null || configured.isBlank() ? defaultFolder() : Path.of(configured);
         if (Files.isRegularFile(location)) {
             return location;
         }

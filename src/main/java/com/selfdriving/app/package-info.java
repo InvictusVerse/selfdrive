@@ -1,5 +1,5 @@
 /**
- * Application bootstrap: JavaFX startup, the shared application context that wires all
- * services together, and the logged-in user session.
+ * Application start-up: JavaFX bootstrap (database, simulation, sign-in, shell) and the developer
+ * script runner.
  */
 package com.selfdriving.app;

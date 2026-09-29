@@ -42,6 +42,7 @@ public final class DrivingView {
     private final CarModel car;
     private final CameraRig cameraRig = new CameraRig();
     private final DynamicLayer dynamic = new DynamicLayer();
+    private final SignalLayer signals;
     private final AmbientLight ambient;
     private final DirectionalLight sun;
     private Boolean night;
@@ -54,12 +55,13 @@ public final class DrivingView {
     public DrivingView(World ground, VehicleParams params) {
         car = new CarModel(params);
         WorldModel world = new WorldModel(ground);
+        signals = new SignalLayer(ground.network());
 
         ambient = new AmbientLight(DAY_AMBIENT);
         sun = new DirectionalLight(DAY_SUN);
         sun.setDirection(new Point3D(-0.35, 1, 0.45));
 
-        Group root = new Group(world.node(), dynamic.node(), car.node(), ambient, sun);
+        Group root = new Group(world.node(), signals.node(), dynamic.node(), car.node(), ambient, sun);
         subScene = new SubScene(root, 800, 600, true, SceneAntialiasing.BALANCED);
         subScene.setFill(Materials.BACKGROUND);
         subScene.setCamera(cameraRig.camera());
@@ -132,6 +134,7 @@ public final class DrivingView {
             sun.setColor(dark ? NIGHT_MOON : DAY_SUN);
         }
         dynamic.update(snapshot);
+        signals.update(snapshot.time());
         cameraRig.update(state, dt);
     }
 

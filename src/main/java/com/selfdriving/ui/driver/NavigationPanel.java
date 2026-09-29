@@ -46,6 +46,9 @@ final class NavigationPanel {
         void scenarioRoadClosed();
 
         void clearScenarios();
+
+        /** Off, light, normal, heavy traffic. */
+        void cycleTraffic();
     }
 
     private final VBox root = new VBox(8);
@@ -55,6 +58,7 @@ final class NavigationPanel {
     private final Button autopilot = button("Start autopilot", "Hand driving to the autopilot (E)");
     private final Label maxSpeed = new Label();
     private final ToggleButton aeb = new ToggleButton("AEB");
+    private final Button trafficButton = button("Traffic", "Other vehicles on the roads: off, light, normal or heavy (Y)");
 
     NavigationPanel(List<Place> places, Actions actions) {
         root.getStyleClass().add("card");
@@ -125,7 +129,8 @@ final class NavigationPanel {
         reset.setOnAction(e -> actions.clearScenarios());
         style(aeb, "Automatic emergency braking on or off");
         aeb.setOnAction(e -> actions.setEmergencyBraking(aeb.isSelected()));
-        HBox scenarios = new HBox(6, scenariosLabel, pedestrian, stopped, closed, reset, spacer(), aeb);
+        trafficButton.setOnAction(e -> actions.cycleTraffic());
+        HBox scenarios = new HBox(6, scenariosLabel, pedestrian, stopped, closed, reset, spacer(), trafficButton, aeb);
         scenarios.setAlignment(Pos.CENTER_LEFT);
 
         root.getChildren().addAll(title, pick, summary, instruction, drive, scenarios);
@@ -156,6 +161,15 @@ final class NavigationPanel {
         autopilot.setDisable(nav == null && !engaged);
         maxSpeed.setText(String.format("Max %.0f km/h", s.settings().maxAutopilotSpeed() * 3.6));
         aeb.setSelected(s.settings().emergencyBrakingEnabled());
+        trafficButton.setText("Traffic: " + trafficLevel(s.settings().trafficCount()));
+    }
+
+    /** Name for a traffic amount. */
+    static String trafficLevel(int count) {
+        if (count == 0) {
+            return "Off";
+        }
+        return count < 120 ? "Light" : count < 200 ? "Normal" : "Heavy";
     }
 
     static String distance(double metres) {

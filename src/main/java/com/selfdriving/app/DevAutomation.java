@@ -40,7 +40,7 @@ import com.selfdriving.vehicle.Lights;
  * e.g. 1280x720), {@code destination} (place name), {@code autopilot} (0/1),
  * {@code scenario} (pedestrian/stopped/closed/clear), {@code lidar} (0/1),
  * {@code speed} (time scale, e.g. 4), {@code indicator} (LEFT/RIGHT), {@code hazard},
- * {@code headlights} (OFF/AUTO/ON), {@code mainbeam}, {@code clock} (e.g. 21.30),
+ * {@code headlights} (OFF/AUTO/ON), {@code mainbeam}, {@code traffic} (number of vehicles), {@code clock} (e.g. 21.30),
  * {@code fps} (seconds to measure the frame rate), {@code shot} (PNG path), {@code exit}. (The step separator ':' means clock times use '.'.)
  */
 final class DevAutomation {
@@ -105,6 +105,7 @@ final class DevAutomation {
             case "indicator" -> simulation.submit(sim -> sim.toggleIndicator(
                     Lights.Indicator.valueOf(value.toUpperCase(Locale.ROOT))));
             case "hazard" -> simulation.submit(Simulation::toggleHazard);
+            case "traffic" -> simulation.submit(sim -> sim.setTrafficCount(Integer.parseInt(value)));
             case "headlights" -> simulation.submit(sim -> sim.setHeadlightMode(
                     Lights.HeadlightMode.valueOf(value.toUpperCase(Locale.ROOT))));
             case "mainbeam" -> simulation.submit(Simulation::toggleMainBeam);

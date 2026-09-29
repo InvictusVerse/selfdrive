@@ -44,6 +44,7 @@ public final class SelfDrivingApp extends Application {
     public void start(Stage stage) {
         World world = new World();
         Simulation simulation = new Simulation(VehicleParams.electricSedan(), world);
+        simulation.setTrafficCount(Integer.getInteger("selfdrive.traffic", 160));
         loop = new SimulationLoop(simulation);
         screen = new DriverScreen(simulation, world);
 

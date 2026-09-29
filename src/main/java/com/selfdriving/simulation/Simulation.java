@@ -37,7 +37,9 @@ import com.selfdriving.world.Obstacle;
 import com.selfdriving.world.Place;
 import com.selfdriving.world.Point2;
 import com.selfdriving.world.Pose;
+import com.selfdriving.world.OrientedBox;
 import com.selfdriving.world.RoadNetwork;
+import com.selfdriving.traffic.TrafficSystem;
 import com.selfdriving.world.World;
 
 /**
@@ -89,6 +91,7 @@ public final class Simulation {
     private final ScenarioManager scenarios = new ScenarioManager();
     private final AlertBus alerts = new AlertBus();
     private final Lights lights = new Lights();
+    private final TrafficSystem traffic;
     private final Pose start;
 
     private final Queue<Consumer<Simulation>> commands = new ConcurrentLinkedQueue<>();
@@ -127,6 +130,7 @@ public final class Simulation {
         this.controls = new DriverControls(params);
         this.monitor = new PerformanceMonitor(params);
         this.autopilot = new Autopilot(params);
+        this.traffic = new TrafficSystem(world.network(), 0, 42);
         this.start = start;
         // Warnings pop up as toasts; critical alerts get their own card on the display until acknowledged.
         alerts.subscribe(alert -> {
@@ -198,6 +202,7 @@ public final class Simulation {
         double speed = car.speed();
         controls.update(driverInput, speed, dt);
         scenarios.update(time, dt);
+        traffic.update(dt, time, ego(), scenarios.actors());
         List<Obstacle> obstacles = obstacles();
 
         if (tick % SENSOR_INTERVAL_TICKS == 0) {
@@ -222,6 +227,9 @@ public final class Simulation {
         applied = inputs;
         car.step(dt, inputs, surface);
         for (CollisionSystem.Impact impact : collisions.resolve(car, obstacles, world.walls())) {
+            if (impact.obstacle() != null && impact.obstacle().id() >= TrafficSystem.FIRST_ID) {
+                traffic.hit(impact.obstacle().id());
+            }
             if (impact.impactSpeed() > 0.5) {
                 alerts.publish(time, Alert.Severity.CRITICAL, Alert.Category.COLLISION,
                         String.format("Collision with %s at %.0f km/h", impact.what(),
@@ -349,9 +357,34 @@ public final class Simulation {
     }
 
     private List<Obstacle> obstacles() {
-        List<Obstacle> all = new ArrayList<>();
-        all.addAll(scenarios.actors());
+        List<Obstacle> all = new ArrayList<>(scenarios.actors());
+        all.addAll(traffic.obstacles());
         return all;
+    }
+
+    /** The car as other traffic sees it. */
+    private TrafficSystem.Ego ego() {
+        OrientedBox box = CollisionSystem.carBox(car);
+        return new TrafficSystem.Ego(box.cx(), box.cy(), car.heading(), car.speed(), car.worldVx(), car.worldVy(),
+                box.halfLength(), box.halfWidth());
+    }
+
+    // ---- Commands: traffic ------------------------------------------------------------------
+
+    /** How many other vehicles drive around the city (0 = empty roads). */
+    public void setTrafficCount(int count) {
+        boolean start = traffic.count() == 0 && count > 0;
+        traffic.setTargetCount(count);
+        if (start) {
+            traffic.populate(ego());
+        }
+        if (count == 0) {
+            traffic.clear();
+        }
+    }
+
+    public int trafficCount() {
+        return traffic.targetCount();
     }
 
     // ---- Commands: driving ----------------------------------------------------------------
@@ -738,9 +771,13 @@ public final class Simulation {
         for (Obstacle o : scenarios.actors()) {
             actors.add(new SimulationSnapshot.ActorState(o.id(), o.kind(), o.box(), o.height(), seen.contains(o.id())));
         }
+        for (TrafficSystem.View v : traffic.views()) {
+            actors.add(new SimulationSnapshot.ActorState(v.id(), v.type().kind(), v.box(), v.type().height(),
+                    seen.contains(v.id()), v.braking(), v.indicator(), v.hazard()));
+        }
         latest.set(new SimulationSnapshot(tick, time, vehicleState(), mode, navigation, autopilotStatus, assessment,
                 readings, actors, closedEdges, alerts.recent(ALERTS_IN_SNAPSHOT), alerts.unacknowledgedCritical(),
-                new SimulationSnapshot.Settings(maxAutopilotSpeed, emergencyBrakingEnabled),
+                new SimulationSnapshot.Settings(maxAutopilotSpeed, emergencyBrakingEnabled, traffic.targetCount()),
                 monitor.lastBrakeTest(), monitor.lastAccelerationTest(), monitor.isAccelerationTestRunning(),
                 monitor.accelerationTestTime(), monitor.isBrakeTestRunning(), paused, timeScale, lightState,
                 timeOfDay(), outsideTemperature()));

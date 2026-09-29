@@ -51,7 +51,7 @@ public final class RoadNetwork {
     private static final double SIGNAL_SEARCH = 22;
     private static final double TURN_THRESHOLD = Math.toRadians(35);
     private static final double UTURN_THRESHOLD = Math.toRadians(150);
-    private static final double CONFLICT_DISTANCE = 1.9;
+    private static final double CONFLICT_DISTANCE = 2.6;
     private static final double GREEN = 22;
     private static final double GREEN_MAJOR_BONUS = 10;
     private static final double AMBER = 3;
@@ -1022,7 +1022,7 @@ public final class RoadNetwork {
                 }
                 arcA += a0.distanceTo(a1);
             }
-            // Near misses: paths that pass closer than a car's width without crossing.
+            // Near misses: paths that pass closer than a vehicle's width (buses too) without crossing.
             double best = CONFLICT_DISTANCE;
             double[] result = null;
             double sa = 0;

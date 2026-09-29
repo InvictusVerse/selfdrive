@@ -10,7 +10,12 @@ public final class Obstacle {
 
     /** What an obstacle is. Sensors report it; the display draws it accordingly. */
     public enum Kind {
-        BUILDING, CAR, PEDESTRIAN, BARRIER
+        BUILDING, CAR, BUS, TRUCK, AUTO_RICKSHAW, MOTORBIKE, PEDESTRIAN, BARRIER;
+
+        /** A road vehicle (anything that drives in a lane). */
+        public boolean isVehicle() {
+            return this == CAR || this == BUS || this == TRUCK || this == AUTO_RICKSHAW || this == MOTORBIKE;
+        }
     }
 
     /** Moves an obstacle over time (e.g. a pedestrian crossing, a car pulling away). */

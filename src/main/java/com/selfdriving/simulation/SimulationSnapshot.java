@@ -102,13 +102,21 @@ public record SimulationSnapshot(
     /**
      * A moving or temporary object.
      *
-     * @param id       obstacle id
-     * @param kind     what it is
-     * @param box      footprint
-     * @param height   m
-     * @param detected whether the car's sensors currently see it
+     * @param id        obstacle id
+     * @param kind      what it is
+     * @param box       footprint
+     * @param height    m
+     * @param detected  whether the car's sensors currently see it
+     * @param braking   brake lights on (traffic)
+     * @param indicator 1 = left, -1 = right, 0 = none (traffic)
+     * @param hazard    hazard lights on (traffic)
      */
-    public record ActorState(int id, Obstacle.Kind kind, OrientedBox box, double height, boolean detected) {
+    public record ActorState(int id, Obstacle.Kind kind, OrientedBox box, double height, boolean detected,
+                             boolean braking, int indicator, boolean hazard) {
+
+        public ActorState(int id, Obstacle.Kind kind, OrientedBox box, double height, boolean detected) {
+            this(id, kind, box, height, detected, false, 0, false);
+        }
     }
 
     /**
@@ -116,7 +124,8 @@ public record SimulationSnapshot(
      *
      * @param maxAutopilotSpeed      m/s
      * @param emergencyBrakingEnabled automatic emergency braking on
+     * @param trafficCount           other vehicles kept on the roads
      */
-    public record Settings(double maxAutopilotSpeed, boolean emergencyBrakingEnabled) {
+    public record Settings(double maxAutopilotSpeed, boolean emergencyBrakingEnabled, int trafficCount) {
     }
 }

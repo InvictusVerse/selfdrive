@@ -51,6 +51,12 @@ final class DynamicLayer {
     private final PhongMaterial threat = Materials.glowing(Color.web("#ff3b3b"));
     private final PhongMaterial barrier = Materials.glowing(Color.web("#f08a24"));
     private final PhongMaterial routeMaterial = Materials.glowing(Color.web("#1f3f9c"));
+    private final PhongMaterial glassMaterial = Materials.glossy("#1b1f25", "#6d7a88", 60);
+    private final PhongMaterial tyreMaterial = Materials.matte("#141516");
+    private final PhongMaterial brakeOff = Materials.matte("#4a1216");
+    private final PhongMaterial brakeOn = Materials.glowing(Color.web("#ff2b2b"));
+    private final PhongMaterial amberOn = Materials.glowing(Color.web("#ffa21a"));
+    private final TrafficModels models = new TrafficModels();
 
     DynamicLayer() {
         lidarGroup.setVisible(false);
@@ -103,6 +109,7 @@ final class DynamicLayer {
     private void updateActors(SimulationSnapshot s) {
         int leadId = s.autopilot() != null ? s.autopilot().leadObjectId() : -1;
         int threatId = s.safety().emergencyBraking() ? s.safety().threatId() : -1;
+        boolean blink = (s.time() % com.selfdriving.vehicle.Lights.FLASH_PERIOD) < com.selfdriving.vehicle.Lights.FLASH_PERIOD / 2;
         Set<Integer> present = new HashSet<>();
         for (SimulationSnapshot.ActorState a : s.actors()) {
             present.add(a.id());
@@ -116,6 +123,14 @@ final class DynamicLayer {
                     : a.id() == leadId ? lead
                     : a.kind() == com.selfdriving.world.Obstacle.Kind.BARRIER ? barrier : normal;
             node.setMaterial(material);
+            if (node.brakeLamps != null) {
+                if (!Boolean.valueOf(a.braking()).equals(node.braking)) {
+                    node.braking = a.braking();
+                    node.brakeLamps.setMaterial(a.braking() ? brakeOn : brakeOff);
+                }
+                node.leftLamps.setVisible(blink && (a.hazard() || a.indicator() > 0));
+                node.rightLamps.setVisible(blink && (a.hazard() || a.indicator() < 0));
+            }
         }
         actors.entrySet().removeIf(entry -> {
             if (!present.contains(entry.getKey())) {
@@ -160,21 +175,32 @@ final class DynamicLayer {
     private ActorNode build(SimulationSnapshot.ActorState a) {
         List<Shape3D> shapes = new ArrayList<>();
         Group body = new Group();
+        if (a.kind().isVehicle()) {
+            double l = 2 * a.box().halfLength();
+            double w = 2 * a.box().halfWidth();
+            TrafficModels.Shape shape = models.shape(a.kind(), l, w);
+            MeshView paint = new MeshView(shape.body());
+            paint.setCullFace(CullFace.NONE);
+            shapes.add(paint);
+            MeshView glass = new MeshView(shape.glass());
+            glass.setCullFace(CullFace.NONE);
+            glass.setMaterial(glassMaterial);
+            MeshView tyres = new MeshView(shape.wheels());
+            tyres.setCullFace(CullFace.NONE);
+            tyres.setMaterial(tyreMaterial);
+            body.getChildren().addAll(paint, glass, tyres);
+            ActorNode node = new ActorNode(body, shapes);
+            double y = -shape.lampHeight();
+            double rear = -l / 2 - 0.02;
+            node.brakeLamps = new Box(0.05, 0.12, Math.max(0.2, w * 0.8));
+            node.brakeLamps.getTransforms().add(new Translate(rear, y, 0));
+            node.brakeLamps.setMaterial(brakeOff);
+            node.leftLamps = lampPair(rear, l / 2 + 0.02, y, w / 2 - 0.06);
+            node.rightLamps = lampPair(rear, l / 2 + 0.02, y, -(w / 2 - 0.06));
+            body.getChildren().addAll(node.brakeLamps, node.leftLamps, node.rightLamps);
+            return node;
+        }
         switch (a.kind()) {
-            case CAR -> {
-                double l = 2 * a.box().halfLength();
-                double w = 2 * a.box().halfWidth();
-                shapes.add(place(new Box(l, 0.8, w), 0, -0.55, 0));
-                shapes.add(place(new Box(l * 0.52, 0.55, w * 0.86), -l * 0.06, -1.2, 0));
-                for (double[] wheel : new double[][] {{l * 0.32, w / 2}, {l * 0.32, -w / 2}, {-l * 0.32, w / 2},
-                        {-l * 0.32, -w / 2}}) {
-                    Cylinder tyre = new Cylinder(0.33, 0.22, 24);
-                    tyre.setMaterial(Materials.matte("#141516"));
-                    tyre.getTransforms().addAll(new Translate(wheel[0], -0.33, wheel[1]),
-                            new javafx.scene.transform.Rotate(90, javafx.scene.transform.Rotate.X_AXIS));
-                    body.getChildren().add(tyre);
-                }
-            }
             case PEDESTRIAN -> {
                 shapes.add(place(new Cylinder(0.2, 1.3), 0, -0.65, 0));
                 shapes.add(place(new Sphere(0.14, 16), 0, -1.5, 0));
@@ -193,6 +219,19 @@ final class DynamicLayer {
         return new ActorNode(body, shapes);
     }
 
+    /** Indicator lamps at the rear and front corner on one side. */
+    private Group lampPair(double rearX, double frontX, double y, double z) {
+        Box back = new Box(0.05, 0.1, 0.14);
+        back.getTransforms().add(new Translate(rearX - 0.01, y, z));
+        Box front = new Box(0.05, 0.1, 0.14);
+        front.getTransforms().add(new Translate(frontX, y + 0.1, z));
+        back.setMaterial(amberOn);
+        front.setMaterial(amberOn);
+        Group g = new Group(back, front);
+        g.setVisible(false);
+        return g;
+    }
+
     private static Shape3D place(Shape3D shape, double x, double y, double z) {
         shape.getTransforms().add(new Translate(x, y, z));
         return shape;
@@ -204,6 +243,10 @@ final class DynamicLayer {
         final List<Shape3D> shapes;
         final Affine pose = new Affine();
         PhongMaterial current;
+        Box brakeLamps;
+        Group leftLamps;
+        Group rightLamps;
+        Boolean braking;
 
         ActorNode(Group group, List<Shape3D> shapes) {
             this.group = group;

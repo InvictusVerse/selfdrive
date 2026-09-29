@@ -24,6 +24,7 @@ final class HelpOverlay {
             {"X", "Emergency stop"},
             {"L", "Show lidar points"},
             {"O", "On-screen wheel and pedals on or off"},
+            {"Y", "Traffic: off, light, normal, heavy"},
             {",  /  .", "Left  /  right indicator (cancels itself after the turn)"},
             {"/", "Hazard lights"},
             {"N", "Headlights: Off, Auto, On"},

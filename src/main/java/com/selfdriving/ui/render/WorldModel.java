@@ -126,7 +126,7 @@ public final class WorldModel {
             }
             boolean crossing = j.incoming().size() + j.outgoing().size() > 2;
             for (Point2 m : j.members()) {
-                disc(b, m.x(), m.y(), radius + (crossing ? 3.0 : 0.3), -0.009);
+                disc(b, m.x(), m.y(), radius + (crossing ? 1.5 : 0.3), -0.009);
             }
         }
     }

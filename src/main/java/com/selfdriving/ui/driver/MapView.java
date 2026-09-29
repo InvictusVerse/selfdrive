@@ -166,7 +166,7 @@ final class MapView {
                 case BARRIER -> Palette.DANGER;
                 default -> Palette.TEXT_MUTED;
             });
-            double r = a.kind() == Obstacle.Kind.PEDESTRIAN ? 4 : 5;
+            double r = a.kind() == Obstacle.Kind.PEDESTRIAN ? 4 : a.kind().isVehicle() ? 3 : 5;
             g.fillOval(sx(a.box().cx()) - r, sy(a.box().cy()) - r, 2 * r, 2 * r);
         }
 

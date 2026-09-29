@@ -191,6 +191,7 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
             case SLASH -> toggleHazard();
             case N -> cycleHeadlights();
             case K -> toggleMainBeam();
+            case Y -> cycleTraffic();
             case J -> simulation.submit(sim -> sim.setHeadlightFlash(true));
             default -> handled = false;
         }
@@ -357,6 +358,23 @@ public final class DriverScreen implements ControlDock.Actions, NavigationPanel.
     @Override
     public void clearScenarios() {
         simulation.submit(Simulation::clearScenarios);
+    }
+
+    private static final int[] TRAFFIC_LEVELS = {0, 80, 160, 240};
+
+    @Override
+    public void cycleTraffic() {
+        int current = simulation.latest().settings().trafficCount();
+        int next = TRAFFIC_LEVELS[0];
+        for (int level : TRAFFIC_LEVELS) {
+            if (level > current) {
+                next = level;
+                break;
+            }
+        }
+        int count = next;
+        simulation.submit(sim -> sim.setTrafficCount(count));
+        toast.show("Traffic: " + NavigationPanel.trafficLevel(count));
     }
 
     // ---- Actions (lights) ------------------------------------------------------------------
